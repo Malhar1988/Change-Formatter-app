@@ -1,7 +1,4 @@
 import streamlit as st
-import pkg_resources
-st.write("📦 Installed packages:", [pkg.key for pkg in pkg_resources.working_set])
-import streamlit as st
 import pandas as pd
 from io import BytesIO
 

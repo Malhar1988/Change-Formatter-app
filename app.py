@@ -41,7 +41,7 @@ uploaded_file = st.file_uploader("📤 Upload Excel File", type=["xlsx"])
 
 if uploaded_file:
     try:
-        df = pd.read_excel(uploaded_file, sheet_name="Tabelle1", engine="openpyxl")
+        df = pd.read_excel(uploaded_file, engine="openpyxl")
         st.success("✅ File uploaded and read successfully!")
 
         formatted_df = format_data(df)

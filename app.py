@@ -1,120 +1,163 @@
 import streamlit as st
 import pandas as pd
 from openpyxl import Workbook
+from openpyxl.cell.rich_text import CellRichText, TextBlock
+from openpyxl.styles import Font
 from io import BytesIO
+from datetime import datetime
 
+# --- Helper functions for date formatting ---
+
+def ordinal(n):
+    """Return the ordinal string of a number (e.g., 9 -> '9th')."""
+    if 11 <= (n % 100) <= 13:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return str(n) + suffix
+
+def format_date(val):
+    """If a date is in the format '09-04-2025  05:00:00', format it as '9th April 2025'."""
+    if pd.isna(val):
+        return ""
+    if isinstance(val, datetime):
+        dt = val
+    else:
+        try:
+            # Strip extra spaces and parse the input string.
+            dt = datetime.strptime(str(val).strip(), "%d-%m-%Y %H:%M:%S")
+        except Exception:
+            # If parsing fails, return the original string.
+            return str(val)
+    return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
+
+# --- Main function to generate the formatted Excel file ---
 def generate_formatted_excel(df):
-    """
-    For each record in the input dataframe (one row),
-    build a three-column output where:
-      - Column 1 combines PlannedStart, PlannedEnd, Title, a summary line, and BusinessGroups.
-      - Column 2 combines ChangeId (with /F4F appended) and a processed RiskLevel.
-      - Column 3 checks BC column for trading assets (apps starting with 'ST') and lists any other BC apps.
-    All content for each record is built as multi-line text.
-    """
-    
-    # Create a new workbook and select the active worksheet
     wb = Workbook()
     ws = wb.active
     ws.title = "Output Final"
     
-    # Process each record (each row in df)
+    # Process each record from the input file (one row per record)
     for idx, row in df.iterrows():
-        # --- Column 1: Record Details ---
-        # Line 1: PlannedStart - PlannedEnd
-        planned_start = str(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
-        planned_end   = str(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
-        line1 = f"{planned_start} - {planned_end}" if planned_start or planned_end else ""
+        output_row = idx + 1  # Excel rows are 1-indexed
+
+        # --- COLUMN 1: Record Details ---
+        # Line 1: Date line (PlannedStart - PlannedEnd) in bold.
+        planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
+        planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
+        date_line = f"{planned_start} - {planned_end}".strip()
         
         # Line 2: Title
-        line2 = str(row['Title']) if pd.notna(row['Title']) else ""
+        title_line = str(row['Title']) if pd.notna(row['Title']) else ""
         
-        # Line 3: Summary with Location, OnLine/Outage, and counts from CI, BC and NONBC
+        # Line 3: Summary line (Location, OnLine/Outage, CI (count), BC (count), NONBC (count))
         location = str(row['Location']) if pd.notna(row['Location']) else ""
         online_outage = str(row['OnLine/Outage']) if pd.notna(row['OnLine/Outage']) else ""
-        
-        # For counts, split the string by comma if not empty; else count 0
         ci_count = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
-        bc_count_total = len(str(row['BC']).split(",")) if pd.notna(row['BC']) else 0
+        bc_count = len(str(row['BC']).split(",")) if pd.notna(row['BC']) else 0
         nonbc_count = len(str(row['NONBC']).split(",")) if pd.notna(row['NONBC']) else 0
-        line3 = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count_total} BC), NONBC ({nonbc_count} NONBC)"
+        summary_line = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count} BC), NONBC ({nonbc_count} NONBC)".strip()
         
         # Line 4: BusinessGroups
-        line4 = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
+        business_groups_line = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
         
-        col1_text = "\n".join([line for line in [line1, line2, line3, line4] if line])
+        # Build rich text for Column 1, inserting a blank line (two newline characters) after each line.
+        col1_rich = CellRichText(
+            TextBlock(date_line, Font(bold=True)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock(title_line, Font(bold=False)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock(summary_line, Font(bold=False)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock(business_groups_line, Font(bold=False))
+        )
         
-        # --- Column 2: Change and Risk ---
-        # First line: ChangeId with /F4F appended
-        change_id = str(row['ChangeId']) if pd.notna(row['ChangeId']) else ""
-        change_text = f"{change_id}/F4F" if change_id else ""
+        # --- COLUMN 2: Change & Risk ---
+        # Use the F4F column if available; otherwise use ChangeId with "/F4F" appended.
+        if 'F4F' in row.index:
+            f4f_val = str(row['F4F']) if pd.notna(row['F4F']) else ""
+        else:
+            change_id = str(row['ChangeId']) if pd.notna(row['ChangeId']) else ""
+            f4f_val = f"{change_id}/F4F" if change_id else ""
+            
+        # Process the RiskLevel value (remove a leading SHELL_ if present, then capitalize)
+        risk = str(row['RiskLevel']) if pd.notna(row['RiskLevel']) else ""
+        if risk.upper().startswith("SHELL_"):
+            risk = risk[6:]
+        risk = risk.capitalize()
         
-        # Second line: Process the RiskLevel value.
-        risk_value = str(row['RiskLevel']) if pd.notna(row['RiskLevel']) else ""
-        # Remove a possible SHELL_ prefix (case-insensitive) and capitalize the result.
-        if risk_value.upper().startswith("SHELL_"):
-            risk_value = risk_value[6:]
-        risk_value = risk_value.capitalize()
-        col2_text = "\n".join([change_text, risk_value]).strip()
+        col2_rich = CellRichText(
+            TextBlock(f4f_val, Font(bold=False)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock(risk, Font(bold=False))
+        )
         
-        # --- Column 3: Trading Assets & Other BC Apps ---
+        # --- COLUMN 3: Trading Assets & BC Apps ---
+        # Parse the BC column items (assumed comma-separated) that include "(RelationType = Direct)"
         trading_apps = []
         other_apps = []
         if pd.notna(row['BC']):
-            bc_items = [item.strip() for item in str(row['BC']).split(",")]
-            for item in bc_items:
+            for item in str(row['BC']).split(","):
+                item = item.strip()
                 if "(RelationType = Direct)" in item:
-                    # Remove the relation tag and any extra spaces
                     app_name = item.replace("(RelationType = Direct)", "").strip()
                     if app_name.upper().startswith("ST"):
                         trading_apps.append(app_name)
                     else:
                         other_apps.append(app_name)
-                else:
-                    # If the relation tag is not found, consider it as an "other" app
-                    other_apps.append(item)
-                    
-        trading_scope = "Trading assets in scope: Yes" if trading_apps else "Trading assets in scope: No"
-        other_apps_line = "Other BC Apps: " + (", ".join(other_apps) if other_apps else "None")
-        col3_text = "\n".join([trading_scope, other_apps_line])
         
-        # --- Write to the output worksheet ---
-        # Each record occupies one row; set columns A, B, and C.
-        output_row = idx + 1  # Excel rows start at 1
-        ws.cell(row=output_row, column=1, value=col1_text)
-        ws.cell(row=output_row, column=2, value=col2_text)
-        ws.cell(row=output_row, column=3, value=col3_text)
+        trading_scope = "Yes" if trading_apps else "No"
+        trading_bc_apps_content = ", ".join(trading_apps) if trading_apps else "None"
+        # For Other BC Apps:
+        if not trading_apps:
+            other_bc_apps_content = "No"
+        else:
+            other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
+        
+        # Build rich text for Column 3.
+        col3_rich = CellRichText(
+            TextBlock("Trading assets in scope: ", Font(bold=True)),
+            TextBlock(trading_scope, Font(bold=False)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock("Trading BC Apps: ", Font(bold=True)),
+            TextBlock(trading_bc_apps_content, Font(bold=False)),
+            TextBlock("\n\n", Font(bold=False)),
+            TextBlock("Other BC Apps: ", Font(bold=True)),
+            TextBlock(other_bc_apps_content, Font(bold=False))
+        )
+        
+        # Write the rich text objects into their respective cells.
+        ws.cell(row=output_row, column=1).value = col1_rich
+        ws.cell(row=output_row, column=2).value = col2_rich
+        ws.cell(row=output_row, column=3).value = col3_rich
+        
+        # Set cells to wrap text so multiple lines are visible.
+        ws.cell(row=output_row, column=1).alignment = ws.cell(row=output_row, column=1).alignment.copy(wrapText=True)
+        ws.cell(row=output_row, column=2).alignment = ws.cell(row=output_row, column=2).alignment.copy(wrapText=True)
+        ws.cell(row=output_row, column=3).alignment = ws.cell(row=output_row, column=3).alignment.copy(wrapText=True)
     
-    # Save the workbook into a BytesIO stream so it can be downloaded
-    output = BytesIO()
-    wb.save(output)
-    output.seek(0)
-    return output
+    # Save workbook to a BytesIO stream.
+    output_stream = BytesIO()
+    wb.save(output_stream)
+    output_stream.seek(0)
+    return output_stream
 
-# --------------------
-# Streamlit App UI
-# --------------------
+# --- Streamlit App UI ---
 st.title("Change Formatter App")
 
 uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx", "xls"])
 
 if uploaded_file:
     try:
-        # Read the input file into a DataFrame
         df = pd.read_excel(uploaded_file)
         st.subheader("Preview of Input Data")
         st.dataframe(df.head())
-        
-        # Generate the formatted output Excel file
         formatted_excel = generate_formatted_excel(df)
-        
-        # Download button to save the output file as output_final.xlsx
         st.download_button(
             label="📥 Download Formatted Output",
             data=formatted_excel,
             file_name="output_final.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )
-        
     except Exception as e:
         st.error(f"Error processing file: {e}")

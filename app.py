@@ -30,19 +30,29 @@ def format_date(val):
 def generate_formatted_excel(df):
     """
     Generate an Excel file using XlsxWriter with three columns:
-      - Column 1 (Record Details): Contains a bold date line (PlannedStart - PlannedEnd),
-        Title, a summary line (Location, OnLine/Outage, CI/BC/NONBC counts), and BusinessGroups.
-      - Column 2 (Change & Risk): Contains the F4F column value (if present, after stripping header spaces)
-        or, if not found, uses ChangeId appended with "/F4F". Also shows RiskLevel (with "SHELL_" removed).
-      - Column 3 (Trading Assets & BC Apps): Contains bold headings for
-        "Trading assets in scope:", "Trading BC Apps:" and "Other BC Apps:" along with their values.
+    
+      Column 1 (Record Details):
+        - Line 1 (bold): Formatted date line: PlannedStart - PlannedEnd.
+        - Line 2: Title.
+        - Line 3: Summary (Location, OnLine/Outage, CI/BC/NONBC counts).
+        - Line 4: BusinessGroups.
+        Each line is separated by extra newlines.
+      
+      Column 2 (Change & Risk):
+        - Line 1: F4F column content (if present; if not, ChangeId with "/F4F" appended).
+        - Line 2: Processed RiskLevel (with "SHELL_" stripped, and capitalized).
+      
+      Column 3 (Trading Assets & BC Apps):
+        - Line 1 (with bold heading): "Trading assets in scope:" followed by Yes/No.
+        - Line 2 (with bold heading): "Trading BC Apps:" followed by a comma-separated list of trading apps.
+        - Line 3 (with bold heading): "Other BC Apps:" followed by a comma-separated list of other BC apps (or "No"/"None" as specified).
     """
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     workbook = writer.book
     worksheet = workbook.add_worksheet("Output Final")
     
-    # Create formats for rich text.
+    # Create formats.
     bold_format = workbook.add_format({'bold': True, 'text_wrap': True})
     normal_format = workbook.add_format({'text_wrap': True})
     
@@ -54,16 +64,16 @@ def generate_formatted_excel(df):
     for idx, row in df.iterrows():
         row_num = idx  # XlsxWriter rows are zero-indexed
         
-        # --------- Column 1: Record Details ---------
+        # --- Column 1: Record Details ---
         # Line 1: Date line (PlannedStart - PlannedEnd) in bold.
         planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
-        planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd']) else ""
+        planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
         date_line = f"{planned_start} - {planned_end}".strip()
         
-        # Line 2: Title
+        # Line 2: Title.
         title_line = str(row['Title']) if pd.notna(row['Title']) else ""
         
-        # Line 3: Summary (Location, OnLine/Outage, CI count, BC count, NONBC count)
+        # Line 3: Summary (Location, OnLine/Outage, CI count, BC count, NONBC count).
         location = str(row['Location']) if pd.notna(row['Location']) else ""
         online_outage = str(row['OnLine/Outage']) if pd.notna(row['OnLine/Outage']) else ""
         ci_count = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
@@ -71,11 +81,13 @@ def generate_formatted_excel(df):
         nonbc_count = len(str(row['NONBC']).split(",")) if pd.notna(row['NONBC']) else 0
         summary_line = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count} BC), NONBC ({nonbc_count} NONBC)".strip()
         
-        # Line 4: BusinessGroups
+        # Line 4: BusinessGroups.
         business_groups_line = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
         
+        # Build rich text for Column 1.
+        # We prepend an empty string so the first text segment can be formatted.
         col1_parts = [
-            bold_format, date_line,
+            "", bold_format, date_line,
             normal_format, "\n\n",
             normal_format, title_line,
             normal_format, "\n\n",
@@ -84,9 +96,8 @@ def generate_formatted_excel(df):
             normal_format, business_groups_line
         ]
         
-        # --------- Column 2: Change & Risk ---------
-        # Ensure we have stripped headers (we do that once after reading df)
-        # Check if 'F4F' column exists in df.columns (case-sensitive, so ensure header is exactly "F4F")
+        # --- Column 2: Change & Risk ---
+        # Check for "F4F" column in the DataFrame (after stripping headers).
         if 'F4F' in df.columns:
             f4f_val = str(row['F4F']) if pd.notna(row['F4F']) else ""
         else:
@@ -99,12 +110,12 @@ def generate_formatted_excel(df):
         risk = risk.capitalize()
         
         col2_parts = [
-            normal_format, f4f_val,
+            "", normal_format, f4f_val,
             normal_format, "\n\n",
             normal_format, risk
         ]
         
-        # --------- Column 3: Trading Assets & BC Apps ---------
+        # --- Column 3: Trading Assets & BC Apps ---
         trading_apps = []
         other_apps = []
         if pd.notna(row['BC']):
@@ -124,7 +135,7 @@ def generate_formatted_excel(df):
             other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
             
         col3_parts = [
-            bold_format, "Trading assets in scope: ",
+            "", bold_format, "Trading assets in scope: ",
             normal_format, trading_scope,
             normal_format, "\n\n",
             bold_format, "Trading BC Apps: ",
@@ -148,8 +159,8 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 
 if uploaded_file:
     try:
-        # Read the Excel file and strip extra spaces from headers.
         df = pd.read_excel(uploaded_file)
+        # Strip extra spaces in header names.
         df.columns = df.columns.str.strip()
         st.subheader("Preview of Input Data")
         st.dataframe(df.head())

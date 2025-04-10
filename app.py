@@ -15,9 +15,9 @@ def ordinal(n):
 def format_date(val):
     """
     Convert a date string like '09-04-2025  05:00:00' to '9th April 2025'.
-    If conversion fails, returns the original value as a string.
+    If conversion fails, return the original value as a string.
     """
-    if pd.isna(val) or val == " ":
+    if pd.isna(val) or val==" ":
         return ""
     if isinstance(val, datetime):
         dt = val
@@ -32,12 +32,15 @@ def format_date(val):
 def generate_formatted_excel(df):
     output = BytesIO()
     
+    # Replace blank cells with a single space (only affecting individual fields)
+    df.fillna(" ", inplace=True)
+    
     # Use ExcelWriter with XlsxWriter in a context manager.
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         worksheet = workbook.add_worksheet("Output Final")
         
-        # Create two formats with explicit white background and black font.
+        # Create two formats that enforce white background and black text.
         bold_format = workbook.add_format({
             'bold': True,
             'text_wrap': True,
@@ -59,32 +62,34 @@ def generate_formatted_excel(df):
         
         st.write("Processing", len(df), "records...")
         
-        # (Optional) Write a header row to verify formatting.
+        # (Optional) Write a test header row in Excel row 1.
+        # We start with a non-empty string so that formatting is applied.
         worksheet.write_rich_string(0, 0,
                                     " ", bold_format, "Test Header Row",
                                     normal_format, " (Row 1)")
         st.write("Test header row written at Excel row 1.")
         
-        # Process each record from the input file and write one output row per record.
-        # Start from Excel row 2.
-        output_row = 1  
+        # Start writing processed records from Excel row 2.
+        output_row = 1
         for idx, row in df.iterrows():
-            # ---------- Column 1: Record Details ----------
-            planned_start = format_date(row.get('PlannedStart', ' '))
-            planned_end   = format_date(row.get('PlannedEnd', ' '))
+            # --- Column 1: Record Details ---
+            planned_start = format_date(row.get('PlannedStart', " "))
+            planned_end   = format_date(row.get('PlannedEnd', " "))
             date_line = f"{planned_start} - {planned_end}".strip()
-            title_line = str(row.get('Title', ' '))
+            title_line = str(row.get('Title', " "))
             
-            location = str(row.get('Location', ' '))
-            online_outage = str(row.get('OnLine/Outage', ' '))
-            ci_val = row.get('CI', ' ')
-            bc_val = row.get('BC', ' ')
-            nonbc_val = row.get('NONBC', ' ')
-            ci_count = len(str(ci_val).split(",")) if pd.notna(ci_val) and str(ci_val).strip() != "" else 0
-            bc_count = len(str(bc_val).split(",")) if pd.notna(bc_val) and str(bc_val).strip() != "" else 0
-            nonbc_count = len(str(nonbc_val).split(",")) if pd.notna(nonbc_val) and str(nonbc_val).strip() != "" else 0
+            location = str(row.get('Location', " "))
+            online_outage = str(row.get('OnLine/Outage', " "))
+            # Get numeric counts by splitting by comma if the string is not just a space.
+            ci_val = row.get('CI', " ")
+            bc_val = row.get('BC', " ")
+            nonbc_val = row.get('NONBC', " ")
+            ci_count = len(str(ci_val).split(",")) if str(ci_val).strip() != "" else 0
+            bc_count = len(str(bc_val).split(",")) if str(bc_val).strip() != "" else 0
+            nonbc_count = len(str(nonbc_val).split(",")) if str(nonbc_val).strip() != "" else 0
+            
             summary_line = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count} BC), NONBC ({nonbc_count} NONBC)".strip()
-            business_groups_line = str(row.get('BusinessGroups', ' '))
+            business_groups_line = str(row.get('BusinessGroups', " "))
             
             col1_parts = [
                 " ", bold_format, date_line,
@@ -96,20 +101,22 @@ def generate_formatted_excel(df):
                 normal_format, business_groups_line
             ]
             
-            # ---------- Column 2: Change & Risk ----------
-            # Use F4F if available; otherwise use ChangeId with '/F4F'
+            # --- Column 2: Change & Risk ---
+            # If the DataFrame contains a column named "F4F", use its content;
+            # otherwise, fallback to ChangeId with "/F4F"
             if 'F4F' in df.columns:
-                change_val = str(row.get('F4F', ' '))
+                change_val = str(row.get('F4F', " "))
             else:
-                change_id = str(row.get('ChangeId', ' '))
+                change_id = str(row.get('ChangeId', " "))
                 change_val = f"{change_id}/F4F" if change_id.strip() != "" else " "
-            col2_line1 = f"Change: {change_val}"
+            # No label "Change:" is added; we output just the value.
+            col2_line1 = change_val
             
-            risk = str(row.get('RiskLevel', ' '))
+            risk = str(row.get('RiskLevel', " "))
             if risk.upper().startswith("SHELL_"):
                 risk = risk[6:]
-            risk = risk.capitalize()
-            col2_line2 = f"Risk: {risk}"
+            risk = risk.capitalize().strip()
+            col2_line2 = risk
             
             col2_parts = [
                 " ", normal_format, col2_line1,
@@ -117,10 +124,11 @@ def generate_formatted_excel(df):
                 normal_format, col2_line2
             ]
             
-            # ---------- Column 3: Trading Assets & BC Apps ----------
+            # --- Column 3: Trading Assets & BC Apps ---
             trading_apps = []
             other_apps = []
-            if pd.notna(bc_val) and str(bc_val).strip() != "":
+            # We assume bc_val is the content of the BC column.
+            if str(bc_val).strip() != "":
                 for item in str(bc_val).split(","):
                     item = item.strip()
                     if "(RelationType = Direct)" in item:
@@ -129,12 +137,11 @@ def generate_formatted_excel(df):
                             trading_apps.append(app_name)
                         else:
                             other_apps.append(app_name)
+            # Determine trading scope.
             trading_scope = "Yes" if trading_apps else "No"
             trading_bc_apps_text = ", ".join(trading_apps) if trading_apps else "None"
-            if not trading_apps:
-                other_bc_apps_text = "No"
-            else:
-                other_bc_apps_text = ", ".join(other_apps) if other_apps else "None"
+            # For other apps, list them if present; if none, display "None"
+            other_bc_apps_text = ", ".join(other_apps) if other_apps else "None"
             
             col3_parts = [
                 " ", bold_format, "Trading assets in scope: ",
@@ -147,12 +154,13 @@ def generate_formatted_excel(df):
                 normal_format, other_bc_apps_text
             ]
             
-            # Log diagnostics in Streamlit.
+            # Log diagnostics.
             st.write(f"Record {idx} -> Excel Row {output_row+1}:")
             st.write("  Col1:", date_line, "|", title_line)
             st.write("  Col2:", col2_line1, "|", col2_line2)
             st.write("  Col3:", trading_scope, "| Trading Apps:", trading_bc_apps_text, "| Other Apps:", other_bc_apps_text)
             
+            # Write to worksheet.
             worksheet.write_rich_string(output_row, 0, *col1_parts)
             worksheet.write_rich_string(output_row, 1, *col2_parts)
             worksheet.write_rich_string(output_row, 2, *col3_parts)
@@ -169,8 +177,7 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        # Replace any blank cells with a space.
-        df.fillna(" ", inplace=True)
+        df.fillna(" ", inplace=True)  # Replace blank cells with a single space.
         df.columns = df.columns.str.strip()  # Clean header names.
         st.write("DataFrame shape:", df.shape)
         st.write("Columns:", df.columns.tolist())

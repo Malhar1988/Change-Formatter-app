@@ -64,3 +64,38 @@ def generate_formatted_excel(df):
     wb.save(output)
     output.seek(0)
     return output
+    # Required imports
+import streamlit as st
+import pandas as pd
+import openpyxl
+from openpyxl.styles import Font
+from io import BytesIO
+
+# Your Excel formatting function
+def generate_formatted_excel(df):
+    # ... your function code ...
+    return output  # ⬅️ THIS is the last line of the function
+
+# ----------------------------
+# Streamlit UI begins here
+# ----------------------------
+
+st.title("Change Formatter App")
+
+uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx"])
+
+if uploaded_file:
+    df = pd.read_excel(uploaded_file)
+
+    st.subheader("Preview of Uploaded Data")
+    st.dataframe(df.head())
+
+    excel_data = generate_formatted_excel(df)
+
+    st.download_button(
+        label="📥 Download Formatted Excel",
+        data=excel_data,
+        file_name="formatted_output.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+

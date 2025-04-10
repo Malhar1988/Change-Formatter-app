@@ -1,7 +1,8 @@
 import streamlit as st
 import pandas as pd
 import openpyxl
-from openpyxl.styles import Font
+from openpyxl.styles import Font, Alignment, Border, Side
+from openpyxl.utils import get_column_letter
 from io import BytesIO
 
 def generate_formatted_excel(df):
@@ -10,41 +11,46 @@ def generate_formatted_excel(df):
     ws = wb.active
     ws.title = "Formatted Output"
     
+    # Define common styles
     bold_font = Font(bold=True)
+    center_align = Alignment(horizontal="center", vertical="center")
+    thin_border = Border(left=Side(style="thin"),
+                         right=Side(style="thin"),
+                         top=Side(style="thin"),
+                         bottom=Side(style="thin"))
+    
+    # Start row counter
     row_num = 1
 
-    # Loop through each row in the DataFrame
-    for index, row in df.iterrows():
-        # --- Planned Dates Section ---
-        # Planned Start Date
-        ws[f"A{row_num}"] = "Planned Start Date:"
-        ws[f"A{row_num}"].font = bold_font
+    # Process each record from the DataFrame into a block of rows
+    for idx, row in df.iterrows():
+        # ===============================
+        # Block Start: Planned Dates Section
+        # ===============================
+        # Row for Planned Start Date
+        ws.cell(row=row_num, column=1, value="Planned Start Date:").font = bold_font
         planned_start = row['PlannedStart'] if pd.notna(row['PlannedStart']) else ""
-        ws[f"B{row_num}"] = str(planned_start)
+        ws.cell(row=row_num, column=2, value=str(planned_start))
         row_num += 1
 
-        # Planned End Date
-        ws[f"A{row_num}"] = "Planned End Date:"
-        ws[f"A{row_num}"].font = bold_font
+        # Row for Planned End Date
+        ws.cell(row=row_num, column=1, value="Planned End Date:").font = bold_font
         planned_end = row['PlannedEnd'] if pd.notna(row['PlannedEnd']) else ""
-        ws[f"B{row_num}"] = str(planned_end)
+        ws.cell(row=row_num, column=2, value=str(planned_end))
         row_num += 1
 
-        # Spacer
+        # Spacer row
         row_num += 1
-
-        # --- Summary Line Section ---
-        # Retrieve required fields with safety in mind
+        
+        # ===============================
+        # Summary Line Section (merged across several columns)
+        # ===============================
         location = row['Location'] if pd.notna(row['Location']) else ""
         outage_type = row['OnLine/Outage'] if pd.notna(row['OnLine/Outage']) else ""
+        # Calculate total CIs from the CI column (comma-separated list)
+        total_cis = len(str(row['CI']).split(",")) if pd.notna(row.get('CI')) else 0
         
-        # Count total CIs
-        if pd.notna(row.get('CI')):
-            total_cis = len(str(row['CI']).split(",")) 
-        else:
-            total_cis = 0
-
-        # Process BC column: separate BC apps and other apps
+        # Process BC details to separate BC apps and other apps
         bc_apps = []
         other_apps = []
         if pd.notna(row.get('BC')):
@@ -52,86 +58,106 @@ def generate_formatted_excel(df):
                 item = item.strip()
                 if "(RelationType = Direct)" in item:
                     app_name = item.replace("(RelationType = Direct)", "").strip()
-                    # Distinguish BC apps by name (e.g., starting with "ST") – adjust as needed
                     if app_name.startswith("ST"):
                         bc_apps.append(app_name)
                     else:
                         other_apps.append(app_name)
-
         bc_count = len(bc_apps)
         non_bc_count = total_cis - bc_count
 
-        # Create summary string
         summary = f"{location}, {outage_type}, {total_cis} CIs, {bc_count} BC, {non_bc_count} Non BC"
-        ws[f"A{row_num}"] = summary
+        ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=3)
+        summary_cell = ws.cell(row=row_num, column=1, value=summary)
+        summary_cell.alignment = center_align
         row_num += 1
-
-        # Spacer
+        
+        # Spacer row
         row_num += 1
-
-        # --- Business Groups Section ---
+        
+        # ===============================
+        # Business Groups Section
+        # ===============================
         if pd.notna(row.get('BusinessGroups')):
             business_groups = str(row['BusinessGroups']).split(",")
             for bg in business_groups:
-                ws[f"A{row_num}"] = bg.strip()
+                ws.cell(row=row_num, column=1, value=bg.strip())
                 row_num += 1
-
-        # Spacer
-        row_num += 1
-
-        # --- Change ID Section (placed in column B) ---
-        ws[f"B{row_num}"] = str(row['ChangeId']) if pd.notna(row.get('ChangeId')) else ""
-        row_num += 1
-
-        # Spacer
-        row_num += 1
-
-        # --- Column C Details Section ---
-        # Platform Information
-        ws[f"C{row_num}"] = "Platform: FCI"
+        
+        # Spacer row
         row_num += 1
         
-        # Trading Assets in Scope
-        ws[f"C{row_num}"] = "Trading assets in scope: Yes"
+        # ===============================
+        # Change ID Section (placed in Column B)
+        # ===============================
+        change_id = str(row['ChangeId']) if pd.notna(row.get('ChangeId')) else ""
+        ws.cell(row=row_num, column=2, value=change_id)
         row_num += 1
-
-        # Spacer
+        
+        # Spacer row
         row_num += 1
-
-        # Trading BC Apps and details
-        ws[f"C{row_num}"] = "Trading BC Apps:"
+        
+        # ===============================
+        # Additional Details in Column C
+        # ===============================
+        # Platform & Trading Assets lines
+        ws.cell(row=row_num, column=3, value="Platform: FCI")
+        row_num += 1
+        ws.cell(row=row_num, column=3, value="Trading assets in scope: Yes")
+        row_num += 1
+        
+        # Spacer row
+        row_num += 1
+        
+        # Trading BC Apps
+        ws.cell(row=row_num, column=3, value="Trading BC Apps:")
+        ws.cell(row=row_num, column=3).font = bold_font
         row_num += 1
         if bc_apps:
             for app in bc_apps:
-                ws[f"C{row_num}"] = app
+                ws.cell(row=row_num, column=3, value=app)
                 row_num += 1
         else:
-            # In case there are no BC apps
-            ws[f"C{row_num}"] = "None"
+            ws.cell(row=row_num, column=3, value="None")
             row_num += 1
-
-        # Spacer
+        
+        # Spacer row
         row_num += 1
-
-        ws[f"C{row_num}"] = "Other BC Apps:"
+        
+        # Other BC Apps
+        ws.cell(row=row_num, column=3, value="Other BC Apps:")
+        ws.cell(row=row_num, column=3).font = bold_font
         row_num += 1
         if other_apps:
             for app in other_apps:
-                ws[f"C{row_num}"] = app
+                ws.cell(row=row_num, column=3, value=app)
                 row_num += 1
         else:
-            # In case there are no other BC apps
-            ws[f"C{row_num}"] = "None"
+            ws.cell(row=row_num, column=3, value="None")
             row_num += 1
-
-        # Large spacer before processing the next record
+        
+        # Large Spacer between records
         row_num += 3
+
+    # Optionally, adjust column widths to improve appearance
+    for col in range(1, 4):
+        max_length = 0
+        col_letter = get_column_letter(col)
+        for cell in ws[col_letter]:
+            try:
+                if cell.value and len(str(cell.value)) > max_length:
+                    max_length = len(str(cell.value))
+            except:
+                pass
+        adjusted_width = (max_length + 2)
+        ws.column_dimensions[col_letter].width = adjusted_width
 
     wb.save(output)
     output.seek(0)
     return output
 
-# --- Streamlit App UI ---
+# -------------------------
+# Streamlit App UI
+# -------------------------
 st.title("Change Formatter App")
 
 uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx"])

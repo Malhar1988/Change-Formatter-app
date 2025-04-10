@@ -4,17 +4,17 @@ from io import BytesIO
 from datetime import datetime
 
 def ordinal(n):
-    """Return the ordinal string for a number (e.g., 9 -> '9th')."""
+    """Return ordinal string for a number (e.g., 9 -> '9th')."""
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        suffix = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
     return str(n) + suffix
 
 def format_date(val):
     """
-    Convert a date string like '09-04-2025  05:00:00' to '9th April 2025'.
-    If parsing fails, returns the original value as a string.
+    Convert a date string like '09-04-2025  05:00:00' into '9th April 2025'.
+    If the conversion fails, returns the original value as a string.
     """
     if pd.isna(val):
         return ""
@@ -29,15 +29,30 @@ def format_date(val):
 
 def generate_formatted_excel(df):
     """
-    Generate an Excel file using XlsxWriter with three columns.
-    See the detailed formatting requirements in previous messages.
+    Build an output Excel file with three columns using XlsxWriter:
+    
+    Column 1 ("Record Details"):
+      - Line 1 (bold): A date line combining PlannedStart and PlannedEnd.
+      - Line 2: Title.
+      - Line 3: A summary line (Location, OnLine/Outage, and counts for CI, BC, NONBC).
+      - Line 4: BusinessGroups.
+      Each line is separated by extra newlines.
+      
+    Column 2 ("Change & Risk"):
+      - Line 1: Either the F4F column value (if present) or ChangeId appended with "/F4F".
+      - Line 2: RiskLevel (with any "SHELL_" prefix removed and the rest capitalized).
+      
+    Column 3 ("Trading Assets & BC Apps"):
+      - Line 1 (bold heading): "Trading assets in scope:" followed by Yes/No (depending on whether BC items with RelationType=Direct start with "ST").
+      - Line 2 (bold heading): "Trading BC Apps:" followed by a comma-separated list of those apps.
+      - Line 3 (bold heading): "Other BC Apps:" followed by a comma-separated list (or "No"/"None" as specified).
     """
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     workbook = writer.book
     worksheet = workbook.add_worksheet("Output Final")
     
-    # Create formats (explicit white background and black font)
+    # Create two formats—with explicit white background and black text.
     bold_format = workbook.add_format({
         'bold': True, 'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
     })
@@ -45,16 +60,17 @@ def generate_formatted_excel(df):
         'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
     })
     
-    # Set column widths.
+    # Set column widths for a more readable output.
     worksheet.set_column(0, 0, 50)  # Column A
     worksheet.set_column(1, 1, 30)  # Column B
     worksheet.set_column(2, 2, 50)  # Column C
-
-    # Iterate over the DataFrame records.
+    
+    st.write("Generating output for", len(df), "rows...")
+    
     for idx, row in df.iterrows():
-        row_num = idx  # XlsxWriter rows are zero-indexed.
+        row_num = idx  # Zero-indexed (as required by XlsxWriter)
         
-        # --- Column 1: Record Details ---
+        # ---- Column 1: Record Details ----
         planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
         planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
         date_line = f"{planned_start} - {planned_end}".strip()
@@ -77,7 +93,8 @@ def generate_formatted_excel(df):
             normal_format, business_groups_line
         ]
         
-        # --- Column 2: Change & Risk ---
+        # ---- Column 2: Change & Risk ----
+        # Check if the DataFrame contains the "F4F" column.
         if 'F4F' in df.columns:
             f4f_val = str(row['F4F']) if pd.notna(row['F4F']) else ""
         else:
@@ -94,7 +111,7 @@ def generate_formatted_excel(df):
             normal_format, risk
         ]
         
-        # --- Column 3: Trading Assets & BC Apps ---
+        # ---- Column 3: Trading Assets & BC Apps ----
         trading_apps = []
         other_apps = []
         if pd.notna(row['BC']):
@@ -112,7 +129,7 @@ def generate_formatted_excel(df):
             other_bc_apps_content = "No"
         else:
             other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
-            
+        
         col3_parts = [
             "", bold_format, "Trading assets in scope: ",
             normal_format, trading_scope,
@@ -124,13 +141,17 @@ def generate_formatted_excel(df):
             normal_format, other_bc_apps_content
         ]
         
+        # Log diagnostics to Streamlit so we can see what's being generated.
+        st.write(f"Row {idx}:")
+        st.write("  Col1:", date_line, "|", title_line)
+        st.write("  Col2:", f4f_val, "|", risk)
+        st.write("  Col3:", trading_scope, "| Trading Apps:", trading_bc_apps_content, "| Other Apps:", other_bc_apps_content)
+        
+        # Write the constructed rich strings to the worksheet.
         worksheet.write_rich_string(row_num, 0, *col1_parts)
         worksheet.write_rich_string(row_num, 1, *col2_parts)
         worksheet.write_rich_string(row_num, 2, *col3_parts)
     
-        # Optionally, write out a debug cell containing the row number (for verification)
-        # worksheet.write(row_num, 3, f"Row {row_num}")
-        
     writer.close()
     output.seek(0)
     return output
@@ -142,10 +163,9 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        # For debugging, print DataFrame shape and column names.
+        df.columns = df.columns.str.strip()  # Remove any extra spaces from headers.
         st.write("DataFrame shape:", df.shape)
-        st.write("Columns:", df.columns.tolist())
-        df.columns = df.columns.str.strip()  # Clean header names.
+        st.write("DataFrame columns:", df.columns.tolist())
         st.subheader("Preview of Input Data")
         st.dataframe(df.head())
         formatted_excel = generate_formatted_excel(df)

@@ -10,95 +10,115 @@ def generate_formatted_excel(df):
     ws = wb.active
     ws.title = "Formatted Output"
 
-    bold = Font(bold=True)
-
-    row_idx = 1
+    bold_font = Font(bold=True)
+    row_num = 1
 
     for _, row in df.iterrows():
-        # Planned start and end dates
-        ws[f"A{row_idx}"] = "Planned Start Date:"
-        ws[f"A{row_idx}"].font = bold
-        ws[f"B{row_idx}"] = str(row['PlannedStart'])
-        row_idx += 1
+        # Planned Dates
+        ws[f"A{row_num}"] = "Planned Start Date:"
+        ws[f"A{row_num}"].font = bold_font
+        ws[f"B{row_num}"] = str(row['PlannedStart'])
+        row_num += 1
 
-        ws[f"A{row_idx}"] = "Planned End Date:"
-        ws[f"A{row_idx}"].font = bold
-        ws[f"B{row_idx}"] = str(row['PlannedEnd'])
-        row_idx += 1
+        ws[f"A{row_num}"] = "Planned End Date:"
+        ws[f"A{row_num}"].font = bold_font
+        ws[f"B{row_num}"] = str(row['PlannedEnd'])
+        row_num += 1
 
         # Spacer
-        row_idx += 1
+        row_num += 1
 
         # Summary line
         location = row['Location']
         outage_type = row['OnLine/Outage']
         total_cis = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
+        bc_apps = []
+        other_apps = []
 
-        # Extract BC Direct apps from BC column
-        bc_apps_raw = str(row['BC']).split(",") if pd.notna(row['BC']) else []
-        bc_direct_apps = [app.split(" (")[0].strip() for app in bc_apps_raw if "(RelationType = Direct)" in app]
-        trading_bc_apps = [app for app in bc_direct_apps if app.startswith("ST")]
-        other_bc_apps = [app for app in bc_direct_apps if not app.startswith("ST")]
+        if pd.notna(row['BC']):
+            for item in str(row['BC']).split(","):
+                item = item.strip()
+                if "(RelationType = Direct)" in item:
+                    app_name = item.replace("(RelationType = Direct)", "").strip()
+                    if app_name.startswith("ST"):
+                        bc_apps.append(app_name)
+                    else:
+                        other_apps.append(app_name)
 
-        bc_count = len(bc_direct_apps)
+        bc_count = len(bc_apps)
         non_bc_count = total_cis - bc_count
 
-        ws[f"A{row_idx}"] = f"{location}, {outage_type}, {total_cis} CIs, {bc_count} BC, {non_bc_count} Non BC"
-        row_idx += 1
+        summary = f"{location}, {outage_type}, {total_cis} CIs, {bc_count} BC, {non_bc_count} Non BC"
+        ws[f"A{row_num}"] = summary
+        row_num += 1
 
         # Spacer
-        row_idx += 1
+        row_num += 1
 
-        # Business affected
+        # Business Groups
         if pd.notna(row['BusinessGroups']):
             for line in str(row['BusinessGroups']).split(","):
-                ws[f"A{row_idx}"] = line.strip()
-                row_idx += 1
+                ws[f"A{row_num}"] = line.strip()
+                row_num += 1
 
-        # Column B - Change Request
-        ws[f"B{row_idx - 1}"] = str(row['Change Request'])
+        # Spacer
+        row_num += 1
 
-        # Column C content
-        ws[f"C{row_idx - 2}"] = "Platform: FCI"
-        row_idx += 1
-        ws[f"C{row_idx - 1}"] = "Trading assets in scope: Yes"
-        row_idx += 1
-        ws[f"C{row_idx - 1}"] = ""
-        row_idx += 1
-        ws[f"C{row_idx - 1}"] = "Trading BC Apps: " + ", ".join(trading_bc_apps)
-        row_idx += 1
-        ws[f"C{row_idx - 1}"] = "Other BC Apps: " + ", ".join(other_bc_apps)
+        # Change ID and Criticality in Column B
+        ws[f"B{row_num}"] = str(row['ChangeId'])
+        row_num += 1
 
-        # Spacer between records
-        row_idx += 2
+        # Spacer
+        row_num += 1
 
-    # Auto-fit columns
-    for col in ws.columns:
-        max_length = max(len(str(cell.value)) if cell.value else 0 for cell in col)
-        ws.column_dimensions[col[0].column_letter].width = max_length + 2
+        # Third column with BC details
+        ws[f"C{row_num}"] = "Platform: FCI"
+        row_num += 1
+
+        ws[f"C{row_num}"] = "Trading assets in scope: Yes"
+        row_num += 1
+
+        # Spacer
+        row_num += 1
+
+        ws[f"C{row_num}"] = "Trading BC Apps:"
+        row_num += 1
+
+        for app in bc_apps:
+            ws[f"C{row_num}"] = app
+            row_num += 1
+
+        # Spacer
+        row_num += 1
+
+        ws[f"C{row_num}"] = "Other BC Apps:"
+        row_num += 1
+
+        for app in other_apps:
+            ws[f"C{row_num}"] = app
+            row_num += 1
+
+        # Large Spacer between rows
+        row_num += 3
 
     wb.save(output)
     output.seek(0)
     return output
 
-# ----------------------------
-# Streamlit App
-# ----------------------------
-
+# Streamlit App UI
 st.title("Change Formatter App")
-uploaded_file = st.file_uploader("Upload your Changes.xlsx file", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx"])
 
 if uploaded_file:
     df = pd.read_excel(uploaded_file)
-
     st.subheader("Preview of Uploaded Data")
     st.dataframe(df.head())
 
     try:
-        excel_data = generate_formatted_excel(df)
+        formatted_excel = generate_formatted_excel(df)
         st.download_button(
             label="📥 Download Formatted Excel",
-            data=excel_data,
+            data=formatted_excel,
             file_name="formatted_output.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
         )

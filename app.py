@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
-from openpyxl.cell.text import InlineFont   # Use InlineFont instead of Font for rich text
+from openpyxl.cell.text import InlineFont   # Using InlineFont for rich text inline fonts
 from io import BytesIO
 from datetime import datetime
 
@@ -64,13 +64,13 @@ def generate_formatted_excel(df):
         # Build rich text for Column 1.
         # Insert a blank line (two newline characters) after each line.
         col1_rich = CellRichText(
-            TextBlock(date_line, InlineFont(bold=True)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock(title_line, InlineFont(bold=False)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock(summary_line, InlineFont(bold=False)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock(business_groups_line, InlineFont(bold=False))
+            TextBlock(date_line, InlineFont(b=True)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock(title_line, InlineFont(b=False)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock(summary_line, InlineFont(b=False)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock(business_groups_line, InlineFont(b=False))
         )
         
         # --- COLUMN 2: Change & Risk ---
@@ -88,9 +88,9 @@ def generate_formatted_excel(df):
         risk = risk.capitalize()
         
         col2_rich = CellRichText(
-            TextBlock(f4f_val, InlineFont(bold=False)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock(risk, InlineFont(bold=False))
+            TextBlock(f4f_val, InlineFont(b=False)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock(risk, InlineFont(b=False))
         )
         
         # --- COLUMN 3: Trading Assets & BC Apps ---
@@ -116,14 +116,14 @@ def generate_formatted_excel(df):
             other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
         
         col3_rich = CellRichText(
-            TextBlock("Trading assets in scope: ", InlineFont(bold=True)),
-            TextBlock(trading_scope, InlineFont(bold=False)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock("Trading BC Apps: ", InlineFont(bold=True)),
-            TextBlock(trading_bc_apps_content, InlineFont(bold=False)),
-            TextBlock("\n\n", InlineFont(bold=False)),
-            TextBlock("Other BC Apps: ", InlineFont(bold=True)),
-            TextBlock(other_bc_apps_content, InlineFont(bold=False))
+            TextBlock("Trading assets in scope: ", InlineFont(b=True)),
+            TextBlock(trading_scope, InlineFont(b=False)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock("Trading BC Apps: ", InlineFont(b=True)),
+            TextBlock(trading_bc_apps_content, InlineFont(b=False)),
+            TextBlock("\n\n", InlineFont(b=False)),
+            TextBlock("Other BC Apps: ", InlineFont(b=True)),
+            TextBlock(other_bc_apps_content, InlineFont(b=False))
         )
         
         # Write the rich text objects into their respective cells.

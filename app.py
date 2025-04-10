@@ -17,7 +17,7 @@ def format_date(val):
     Convert a date string like '09-04-2025  05:00:00' to '9th April 2025'.
     If conversion fails, returns the original value as a string.
     """
-    if pd.isna(val):
+    if pd.isna(val) or val == " ":
         return ""
     if isinstance(val, datetime):
         dt = val
@@ -37,7 +37,7 @@ def generate_formatted_excel(df):
         workbook = writer.book
         worksheet = workbook.add_worksheet("Output Final")
         
-        # Create two formats with explicit white background and black text.
+        # Create two formats with explicit white background and black font.
         bold_format = workbook.add_format({
             'bold': True,
             'text_wrap': True,
@@ -60,34 +60,32 @@ def generate_formatted_excel(df):
         st.write("Processing", len(df), "records...")
         
         # (Optional) Write a header row to verify formatting.
-        # Now using a non-empty starting string.
         worksheet.write_rich_string(0, 0,
                                     " ", bold_format, "Test Header Row",
                                     normal_format, " (Row 1)")
         st.write("Test header row written at Excel row 1.")
         
         # Process each record from the input file and write one output row per record.
-        # Start writing processed records from Excel row 2.
+        # Start from Excel row 2.
         output_row = 1  
         for idx, row in df.iterrows():
             # ---------- Column 1: Record Details ----------
-            planned_start = format_date(row.get('PlannedStart', ''))
-            planned_end   = format_date(row.get('PlannedEnd', ''))
+            planned_start = format_date(row.get('PlannedStart', ' '))
+            planned_end   = format_date(row.get('PlannedEnd', ' '))
             date_line = f"{planned_start} - {planned_end}".strip()
-            title_line = str(row.get('Title', ''))
+            title_line = str(row.get('Title', ' '))
             
-            location = str(row.get('Location', ''))
-            online_outage = str(row.get('OnLine/Outage', ''))
-            ci_val = row.get('CI', '')
-            bc_val = row.get('BC', '')
-            nonbc_val = row.get('NONBC', '')
+            location = str(row.get('Location', ' '))
+            online_outage = str(row.get('OnLine/Outage', ' '))
+            ci_val = row.get('CI', ' ')
+            bc_val = row.get('BC', ' ')
+            nonbc_val = row.get('NONBC', ' ')
             ci_count = len(str(ci_val).split(",")) if pd.notna(ci_val) and str(ci_val).strip() != "" else 0
             bc_count = len(str(bc_val).split(",")) if pd.notna(bc_val) and str(bc_val).strip() != "" else 0
             nonbc_count = len(str(nonbc_val).split(",")) if pd.notna(nonbc_val) and str(nonbc_val).strip() != "" else 0
             summary_line = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count} BC), NONBC ({nonbc_count} NONBC)".strip()
-            business_groups_line = str(row.get('BusinessGroups', ''))
+            business_groups_line = str(row.get('BusinessGroups', ' '))
             
-            # Build Column 1 parts: we start with a single space so it's not empty.
             col1_parts = [
                 " ", bold_format, date_line,
                 normal_format, "\n\n",
@@ -99,14 +97,15 @@ def generate_formatted_excel(df):
             ]
             
             # ---------- Column 2: Change & Risk ----------
-            # If F4F exists, use it; otherwise, use ChangeId with "/F4F".
+            # Use F4F if available; otherwise use ChangeId with '/F4F'
             if 'F4F' in df.columns:
-                change_val = str(row.get('F4F', ''))
+                change_val = str(row.get('F4F', ' '))
             else:
-                change_id = str(row.get('ChangeId', ''))
-                change_val = f"{change_id}/F4F" if change_id != "" else ""
+                change_id = str(row.get('ChangeId', ' '))
+                change_val = f"{change_id}/F4F" if change_id.strip() != "" else " "
             col2_line1 = f"Change: {change_val}"
-            risk = str(row.get('RiskLevel', ''))
+            
+            risk = str(row.get('RiskLevel', ' '))
             if risk.upper().startswith("SHELL_"):
                 risk = risk[6:]
             risk = risk.capitalize()
@@ -154,7 +153,6 @@ def generate_formatted_excel(df):
             st.write("  Col2:", col2_line1, "|", col2_line2)
             st.write("  Col3:", trading_scope, "| Trading Apps:", trading_bc_apps_text, "| Other Apps:", other_bc_apps_text)
             
-            # Write the rich strings to the worksheet.
             worksheet.write_rich_string(output_row, 0, *col1_parts)
             worksheet.write_rich_string(output_row, 1, *col2_parts)
             worksheet.write_rich_string(output_row, 2, *col3_parts)
@@ -171,6 +169,8 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
+        # Replace any blank cells with a space.
+        df.fillna(" ", inplace=True)
         df.columns = df.columns.str.strip()  # Clean header names.
         st.write("DataFrame shape:", df.shape)
         st.write("Columns:", df.columns.tolist())

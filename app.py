@@ -1,11 +1,10 @@
 import streamlit as st
 import pandas as pd
-import re
 from io import BytesIO
 from datetime import datetime
+import re
 
 # --- Helper Functions ---
-
 def ordinal(n):
     """Return the ordinal string for a number (e.g., 9 -> '9th')."""
     if 11 <= (n % 100) <= 13:
@@ -30,98 +29,100 @@ def format_date(val):
             return str(val)
     return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
 
-def parse_first_int(text):
+def parse_count(text):
     """
-    Return the first integer found in the text, or 0 if none.
-    e.g. '21 under CI' returns 21.
+    Count the number of non-empty items in a comma-separated string.
+    If the text is blank, return 0.
     """
-    m = re.search(r"\d+", text)
-    return int(m.group(0)) if m else 0
+    t = str(text).strip()
+    if t == "":
+        return 0
+    return len([x for x in t.split(",") if x.strip() != ""])
 
 def count_direct(text):
     """
-    Count how many items (split by comma) contain "(RelationType = Direct)".
+    Count only items in the provided string (split by comma) that contain
+    '(RelationType = Direct)'. If text is blank, return 0.
     """
-    if not isinstance(text, str):
+    t = str(text).strip()
+    if t == "":
         return 0
-    items = text.split(",")
     count = 0
-    for item in items:
+    for item in t.split(","):
         if "(RelationType = Direct)" in item:
             count += 1
     return count
 
-def build_summary(location, online_outage, ci_text, bc_text, nonbc_text):
+def build_summary(location, online_outage, ci_val, bc_val, nonbc_val):
     """
-    Build the summary for Column 1.
-    
-    - For Location, if blank, it becomes an empty string.
-    - For CI: extract the first integer (if any) and output "X CIs" if X > 0.
-    - For BC: count only items with "(RelationType = Direct)"; if count > 0, output "X BC (Direct)".
-    - For NONBC: count only direct items; if count > 0, output "X NON BC (Direct)".
-    
-    All parts are joined with ", ". For example, if Location is blank, online_outage is "Online",
-    CI has "21 under CI", BC has 1 item but indirect only (so count 0), and NONBC has 2 items with one direct,
-    the output will be: ", Online, 21 CIs, 1 NON BC (Direct)"
+    Build a summary for Column 1:
+      - Use location (trimmed). If blank, remains "" so that the result starts with a comma.
+      - Use online/outage (trimmed).
+      - For CI: count all items.
+      - For BC and NONBC: count only items that contain "(RelationType = Direct)".
+      - Join the parts with ", " (even if the first element is blank).
     """
     parts = []
-    # For location: if the stripped value is empty, use empty string.
+    # Use the trimmed value (if blank, becomes empty string)
     loc = location.strip() if isinstance(location, str) else ""
-    parts.append(loc)  # This may be empty
-    parts.append(online_outage.strip())
+    onl = online_outage.strip() if isinstance(online_outage, str) else ""
+    parts.append(loc)
+    parts.append(onl)
     
-    # CI count using parse_first_int
-    ci_count = parse_first_int(ci_text)
+    ci_count = parse_count(ci_val)
     if ci_count > 0:
         parts.append(f"{ci_count} CIs")
-        
-    # BC count: count only direct items.
-    bc_direct = count_direct(bc_text)
-    if bc_direct > 0:
-        parts.append(f"{bc_direct} BC (Direct)")
-        
-    # NONBC count: count only direct items.
-    nonbc_direct = count_direct(nonbc_text)
-    if nonbc_direct > 0:
-        parts.append(f"{nonbc_direct} NON BC (Direct)")
     
+    bc_direct = count_direct(bc_val)
+    if bc_direct > 0:
+        parts.append(f"{bc_direct} BC")
+    
+    nonbc_direct = count_direct(nonbc_val)
+    if nonbc_direct > 0:
+        parts.append(f"{nonbc_direct} NON BC")
+    
+    # Join parts with ', '. If loc is empty, result will start with a comma.
     return ", ".join(parts)
 
 def generate_formatted_excel(df):
     output = BytesIO()
     
-    # Replace blank (NaN) values in individual cells with a space.
+    # Replace blank (NaN) cells with a single space.
     df.fillna(" ", inplace=True)
     
-    # Use ExcelWriter with XlsxWriter.
+    # Use pandas ExcelWriter with XlsxWriter.
     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
         workbook = writer.book
         worksheet = workbook.add_worksheet("Output Final")
         
         # Create formats.
         bold_format = workbook.add_format({
-            'bold': True, 'text_wrap': True, 
-            'bg_color': 'white', 'font_color': 'black', 'font_size': 12
+            'bold': True,
+            'text_wrap': True,
+            'bg_color': 'white',
+            'font_color': 'black',
+            'font_size': 12
         })
         normal_format = workbook.add_format({
-            'text_wrap': True, 
-            'bg_color': 'white', 'font_color': 'black', 'font_size': 12
+            'text_wrap': True,
+            'bg_color': 'white',
+            'font_color': 'black',
+            'font_size': 12
         })
         
         # Set column widths.
-        worksheet.set_column(0, 0, 50)  # Column A
-        worksheet.set_column(1, 1, 30)  # Column B
-        worksheet.set_column(2, 2, 50)  # Column C
+        worksheet.set_column(0, 0, 50)  # Column A: Record Details
+        worksheet.set_column(1, 1, 30)  # Column B: Change & Risk
+        worksheet.set_column(2, 2, 50)  # Column C: Trading Assets & BC Apps
         
-        # (Optional) If desired, write a header row. Here we choose to leave it blank.
-        # Starting with processed rows at Excel row 1 (which appears as row 2 in Excel).
-        output_row = 1
+        # (We skip writing a header row, so row 0 will be used for the first record.)
+        output_row = 0
         
         for idx, row in df.iterrows():
-            # -------------- Column 1: Record Details --------------
+            # ---------- Column 1 ----------
             planned_start = format_date(row.get('PlannedStart', " "))
             planned_end = format_date(row.get('PlannedEnd', " "))
-            # If the two dates are identical, show just one date.
+            # If both dates are equal, show one; otherwise, show the range.
             if planned_start == planned_end:
                 date_line = planned_start
             else:
@@ -130,11 +131,11 @@ def generate_formatted_excel(df):
             
             location_val = str(row.get('Location', " "))
             online_val = str(row.get('OnLine/Outage', " "))
-            ci_text = str(row.get('CI', " "))
-            bc_text = str(row.get('BC', " "))
-            nonbc_text = str(row.get('NONBC', " "))
+            ci_val = row.get('CI', " ")
+            bc_val = row.get('BC', " ")
+            nonbc_val = row.get('NONBC', " ")
             
-            summary_line = build_summary(location_val, online_val, ci_text, bc_text, nonbc_text)
+            summary_line = build_summary(location_val, online_val, ci_val, bc_val, nonbc_val)
             business_groups_line = str(row.get('BusinessGroups', " ")).strip()
             
             col1_parts = [
@@ -147,15 +148,14 @@ def generate_formatted_excel(df):
                 normal_format, business_groups_line
             ]
             
-            # -------------- Column 2: Change & Risk --------------
+            # ---------- Column 2 ----------
             change_id = str(row.get('ChangeId', " ")).strip()
             f4f_val = str(row.get('F4F', " ")).strip()
-            # Combine both with a slash—if both exist, otherwise use the one that exists.
-            if change_id and f4f_val and change_id != " " and f4f_val != " ":
+            if change_id and f4f_val:
                 change_text = f"{change_id}/{f4f_val}"
-            elif change_id and change_id != " ":
+            elif change_id:
                 change_text = change_id
-            elif f4f_val and f4f_val != " ":
+            elif f4f_val:
                 change_text = f4f_val
             else:
                 change_text = " "
@@ -164,27 +164,27 @@ def generate_formatted_excel(df):
                 risk_val = risk_val[6:]
             risk_val = risk_val.capitalize().strip()
             
+            # Column 2: first line = change_text, second line = risk
             col2_parts = [
                 " ", normal_format, change_text,
                 normal_format, "\n",
                 normal_format, risk_val
             ]
             
-            # -------------- Column 3: Trading Assets & BC Apps --------------
+            # ---------- Column 3 ----------
             trading_apps = []
             other_apps = []
-            bc_content = str(bc_text).strip()
-            # Split by newline if present; otherwise by comma.
-            if "\n" in bc_content:
-                items = bc_content.split("\n")
+            bc_text = str(bc_val).strip()
+            # If newline is in bc_text, split on newline; otherwise split on comma.
+            if "\n" in bc_text:
+                items = bc_text.split("\n")
             else:
-                items = bc_content.split(",")
+                items = bc_text.split(",")
             for item in items:
                 item = item.strip()
-                # Ignore items like "(12 BC)".
-                if item.startswith("("):
+                if item.startswith("("):  # ignore header items like "(12 BC)"
                     continue
-                # Only consider items with "(RelationType = Direct)".
+                # Only consider direct items.
                 if "(RelationType = Direct)" in item:
                     app_name = item.replace("(RelationType = Direct)", "").strip()
                     if app_name.upper().startswith("ST"):
@@ -193,8 +193,10 @@ def generate_formatted_excel(df):
                         other_apps.append(app_name)
             trading_scope = "Yes" if trading_apps else "No"
             trading_bc_apps_text = ", ".join(trading_apps) if trading_apps else "None"
-            # If no trading apps, then we omit the "Trading BC Apps:" line.
+            
+            # If trading_scope is "No", we output only the Other BC Apps line.
             if trading_scope == "No":
+                # Other apps from BC (which are direct items but not starting with ST)
                 other_bc_apps_text = ", ".join(other_apps) if other_apps else "No"
                 col3_parts = [
                     " ", bold_format, "Trading assets in scope: ",
@@ -216,7 +218,7 @@ def generate_formatted_excel(df):
                     normal_format, other_bc_apps_text
                 ]
             
-            # Write the cells.
+            # Write to worksheet using write_rich_string().
             worksheet.write_rich_string(output_row, 0, *col1_parts)
             worksheet.write_rich_string(output_row, 1, *col2_parts)
             worksheet.write_rich_string(output_row, 2, *col3_parts)
@@ -226,7 +228,7 @@ def generate_formatted_excel(df):
     output.seek(0)
     return output
 
-# ----------------------- Streamlit App UI -----------------------
+# --- Streamlit App UI ---
 st.title("Change Formatter App")
 uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx", "xls"])
 

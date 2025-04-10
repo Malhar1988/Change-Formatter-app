@@ -33,12 +33,9 @@ def format_date(val):
     return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
 
 # --- Create InlineFont instances ---
-# Note: InlineFont objects are used to format rich text.
-bold_font = InlineFont()
-bold_font.b = True
-
-normal_font = InlineFont()
-normal_font.b = False
+# Create InlineFont objects by passing the bold flag directly
+bold_font = InlineFont(b=True)
+normal_font = InlineFont(b=False)
 
 # --- Main function to generate the formatted Excel file ---
 def generate_formatted_excel(df):
@@ -51,7 +48,7 @@ def generate_formatted_excel(df):
         output_row = idx + 1  # Excel rows are 1-indexed
 
         # --- COLUMN 1: Record Details ---
-        # Line 1: Date line in bold: PlannedStart - PlannedEnd (formatted as required)
+        # Line 1: Date line (PlannedStart - PlannedEnd) in bold.
         planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
         planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
         date_line = f"{planned_start} - {planned_end}".strip()
@@ -120,7 +117,6 @@ def generate_formatted_excel(df):
         trading_bc_apps_content = ", ".join(trading_apps) if trading_apps else "None"
         # For Other BC Apps:
         if not trading_apps:
-            # If no trading apps are found, show "No"
             other_bc_apps_content = "No"
         else:
             other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
@@ -141,7 +137,7 @@ def generate_formatted_excel(df):
         ws.cell(row=output_row, column=2).value = col2_rich
         ws.cell(row=output_row, column=3).value = col3_rich
         
-        # Enable text wrapping in the cells.
+        # Enable text wrapping for these cells.
         ws.cell(row=output_row, column=1).alignment = ws.cell(row=output_row, column=1).alignment.copy(wrapText=True)
         ws.cell(row=output_row, column=2).alignment = ws.cell(row=output_row, column=2).alignment.copy(wrapText=True)
         ws.cell(row=output_row, column=3).alignment = ws.cell(row=output_row, column=3).alignment.copy(wrapText=True)

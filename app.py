@@ -32,10 +32,12 @@ def format_date(val):
             return str(val)
     return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
 
-# --- Create InlineFont instances ---
-# Create InlineFont objects by passing the bold flag directly
-bold_font = InlineFont(b=True)
-normal_font = InlineFont(b=False)
+# --- Create InlineFont instances by first instantiating then setting attributes ---
+bold_font = InlineFont()
+bold_font.b = True
+
+normal_font = InlineFont()
+normal_font.b = False
 
 # --- Main function to generate the formatted Excel file ---
 def generate_formatted_excel(df):
@@ -68,7 +70,7 @@ def generate_formatted_excel(df):
         business_groups_line = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
         
         # Build rich text for Column 1.
-        # Two newline characters ("\n\n") are added after each line to leave a blank line.
+        # We add two newline characters ("\n\n") after each line.
         col1_rich = CellRichText(
             TextBlock(date_line, bold_font),
             TextBlock("\n\n", normal_font),
@@ -100,7 +102,7 @@ def generate_formatted_excel(df):
         )
         
         # --- COLUMN 3: Trading Assets & BC Apps ---
-        # Parse BC column items (assumed comma-separated) that contain "(RelationType = Direct)".
+        # Parse the BC column items (assumed comma-separated) that contain "(RelationType = Direct)".
         trading_apps = []
         other_apps = []
         if pd.notna(row['BC']):

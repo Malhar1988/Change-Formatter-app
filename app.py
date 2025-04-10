@@ -1,46 +1,53 @@
 import streamlit as st
 import pandas as pd
 from io import BytesIO
+import xlsxwriter  # We use XlsxWriter directly for this minimal example
 
 def create_debug_excel(df):
     output = BytesIO()
-    import xlsxwriter
-    # Create a workbook in memory.
+    # Create an in-memory workbook.
     workbook = xlsxwriter.Workbook(output, {'in_memory': True})
     worksheet = workbook.add_worksheet("Output")
     
-    # Create formats with a white background and black font.
+    # Create basic formats with white background and black text.
     bold_format = workbook.add_format({
-        'bold': True, 'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
+        'bold': True,
+        'text_wrap': True,
+        'bg_color': 'white',
+        'font_color': 'black',
+        'font_size': 12
     })
     normal_format = workbook.add_format({
-        'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
+        'text_wrap': True,
+        'bg_color': 'white',
+        'font_color': 'black',
+        'font_size': 12
     })
     
     # Set column width for clarity.
     worksheet.set_column(0, 0, 50)
     
     # Write a hard-coded test row in row 0.
-    row_counter = 0
-    worksheet.write_rich_string(row_counter, 0, "", bold_format, "Test Bold", normal_format, " Test Normal")
+    # Here, we start with a non-empty string "Test: " so the rich text is displayed.
+    worksheet.write_rich_string(0, 0,
+                                "Test: ", bold_format, "Test Bold", 
+                                normal_format, " Test Normal")
     st.write("Hard-coded test row written at Excel row 1.")
-    row_counter += 1  # Move to the next row.
     
-    # If the input file has data, generate dummy content from the first row.
+    # Write dummy content from the first row of the input, if available (to row 1).
     if not df.empty:
         first_row = df.iloc[0]
         title = str(first_row.get("Title", "No Title"))
         planned_start = str(first_row.get("PlannedStart", "No Start"))
         dummy_content = f"{planned_start} - {title}"
         st.write("Dummy content for Excel row 2 is:", dummy_content)
-        worksheet.write(row_counter, 0, dummy_content, normal_format)
-        row_counter += 1  # Move to the next row.
+        worksheet.write(1, 0, dummy_content, normal_format)
     else:
         st.write("DataFrame is empty!")
     
-    # Write a manual test value in the next row.
-    worksheet.write(row_counter, 0, "Manual test value in row 3", normal_format)
-    st.write("Manual test value written at Excel row", row_counter + 1)
+    # Write a manual test value in row 2 (Excel row 3).
+    worksheet.write(2, 0, "Manual test value in row 3", normal_format)
+    st.write("Manual test value written at Excel row 3.")
     
     workbook.close()
     output.seek(0)

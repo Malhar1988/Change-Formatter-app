@@ -64,6 +64,7 @@ def generate_formatted_excel(df):
     wb.save(output)
     output.seek(0)
     return output
+    
     # Required imports
 import streamlit as st
 import pandas as pd

@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
-import re
 
 # --- Helper Functions ---
 def ordinal(n):
@@ -10,7 +9,7 @@ def ordinal(n):
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
-        suffix = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
     return str(n) + suffix
 
 def format_date(val):
@@ -31,37 +30,35 @@ def format_date(val):
 
 def build_summary(location, online_outage, ci_val, bc_val, nonbc_val):
     """
-    Build a summary string with:
-      - For CI: if count > 0: output e.g. "3 CIs"
-      - For BC: if count > 0: output e.g. "2 BC"
-      - For NONBC: if count > 0: output e.g. "1 NONBC"
-    Other parts (location, online_outage) are joined with commas.
-    If a field is empty, it is omitted.
+    Build a summary string:
+      - Always output CI count as, e.g., "3 CIs" if ci_val is non-empty.
+      - For BC and NONBC, output the count only if > 0; otherwise, output nothing.
+      - Also include the location and online_outage fields (even if they are a single space).
     """
     parts = []
-    if location.strip():
-        parts.append(location.strip())
-    if online_outage.strip():
-        parts.append(online_outage.strip())
-    # For CI.
+    # Use the values as they are (they're already filled with a space if blank).
+    parts.append(location)        # Even if it is " ", it will be output.
+    parts.append(online_outage)
+    
     ci_count = len(str(ci_val).split(",")) if str(ci_val).strip() != "" else 0
     if ci_count > 0:
         parts.append(f"{ci_count} CIs")
-    # For BC.
+    
     bc_count = len(str(bc_val).split(",")) if str(bc_val).strip() != "" else 0
     if bc_count > 0:
         parts.append(f"{bc_count} BC")
-    # For NONBC.
+    
     nonbc_count = len(str(nonbc_val).split(",")) if str(nonbc_val).strip() != "" else 0
     if nonbc_count > 0:
         parts.append(f"{nonbc_count} NONBC")
+    
     return ", ".join(parts)
 
-# --- Main Function to Generate the Final Formatted Excel File ---
+# --- Main Function to Generate the Formatted Excel File ---
 def generate_formatted_excel(df):
     output = BytesIO()
     
-    # Replace blank values in individual cells with a single space.
+    # Replace blanks in individual cells with a space.
     df.fillna(" ", inplace=True)
     
     # Use ExcelWriter with XlsxWriter in a context manager.
@@ -69,19 +66,12 @@ def generate_formatted_excel(df):
         workbook = writer.book
         worksheet = workbook.add_worksheet("Output Final")
         
-        # Create formats with white background and black text.
+        # Create formats.
         bold_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'bg_color': 'white',
-            'font_color': 'black',
-            'font_size': 12
+            'bold': True, 'text_wrap': True, 'bg_color': 'white', 'font_color': 'black', 'font_size': 12
         })
         normal_format = workbook.add_format({
-            'text_wrap': True,
-            'bg_color': 'white',
-            'font_color': 'black',
-            'font_size': 12
+            'text_wrap': True, 'bg_color': 'white', 'font_color': 'black', 'font_size': 12
         })
         
         # Set column widths.
@@ -91,20 +81,20 @@ def generate_formatted_excel(df):
         
         st.write("Processing", len(df), "records...")
         
-        # Write a test header row (optional).
+        # Write a test header row in Excel row 1.
         worksheet.write_rich_string(0, 0,
                                     " ", bold_format, "Test Header Row",
                                     normal_format, " (Row 1)")
         st.write("Test header row written at Excel row 1.")
         
-        # Process each record and write one output row per record, starting at Excel row 2.
-        output_row = 1
+        # Process each record.
+        output_row = 1  # Start processed records at Excel row 2.
         for idx, row in df.iterrows():
-            # ---------------- Column 1: Record Details ----------------
+            # ---------- Column 1: Record Details ----------
             planned_start = format_date(row.get('PlannedStart', " "))
             planned_end   = format_date(row.get('PlannedEnd', " "))
             date_line = f"{planned_start} - {planned_end}".strip()
-            title_line = str(row.get('Title', " ")).strip()
+            title_line = str(row.get('Title', " "))
             
             location = str(row.get('Location', " "))
             online_outage = str(row.get('OnLine/Outage', " "))
@@ -113,7 +103,7 @@ def generate_formatted_excel(df):
             nonbc_val = row.get('NONBC', " ")
             
             summary_line = build_summary(location, online_outage, ci_val, bc_val, nonbc_val)
-            business_groups_line = str(row.get('BusinessGroups', " ")).strip()
+            business_groups_line = str(row.get('BusinessGroups', " "))
             
             col1_parts = [
                 " ", bold_format, date_line,
@@ -125,11 +115,10 @@ def generate_formatted_excel(df):
                 normal_format, business_groups_line
             ]
             
-            # ---------------- Column 2: Change & Risk ----------------
-            # We need both ChangeId and F4F.
+            # ---------- Column 2: Change & Risk ----------
             change_id = str(row.get('ChangeId', " ")).strip()
             f4f_val = str(row.get('F4F', " ")).strip()
-            # Concatenate with a slash between them.
+            # Combine both values with a slash, with no extra spaces between.
             if change_id != " " and f4f_val != " ":
                 change_text = f"{change_id}/{f4f_val}"
             elif change_id != " ":
@@ -142,6 +131,7 @@ def generate_formatted_excel(df):
             if risk.upper().startswith("SHELL_"):
                 risk = risk[6:]
             risk = risk.capitalize().strip()
+            
             # Use a single newline between the two lines.
             col2_parts = [
                 " ", normal_format, change_text,
@@ -149,21 +139,20 @@ def generate_formatted_excel(df):
                 normal_format, risk
             ]
             
-            # ---------------- Column 3: Trading Assets & BC Apps ----------------
+            # ---------- Column 3: Trading Assets & BC Apps ----------
             trading_apps = []
             other_apps = []
-            # Determine the separator: if bc_val contains newline, split on newline; otherwise on comma.
             bc_content = str(bc_val).strip()
+            # Split based on newline if present; otherwise on comma.
             if "\n" in bc_content:
                 items = bc_content.split("\n")
             else:
                 items = bc_content.split(",")
             for item in items:
                 item = item.strip()
-                # Ignore if the item starts with "(" (e.g., "(12 BC)").
-                if item.startswith("("):
+                if item.startswith("("):  # ignore items like "(12 BC)"
                     continue
-                # Only consider items with "(RelationType = Direct)".
+                # Only consider items with "(RelationType = Direct)"
                 if "(RelationType = Direct)" in item:
                     app_name = item.replace("(RelationType = Direct)", "").strip()
                     if app_name.upper().startswith("ST"):
@@ -172,8 +161,7 @@ def generate_formatted_excel(df):
                         other_apps.append(app_name)
             trading_scope = "Yes" if trading_apps else "No"
             trading_bc_apps_text = ", ".join(trading_apps) if trading_apps else "None"
-            # For other apps: if there are no trading apps, output "No". 
-            # Otherwise, if there are trading apps and other apps exist then list them; if no other apps, output "No".
+            # Per your requirement, if there are trading apps, then Other BC Apps should be "No" if none exist.
             if not trading_apps:
                 other_bc_apps_text = "No"
             else:
@@ -196,6 +184,7 @@ def generate_formatted_excel(df):
             st.write("  Col2:", change_text, "|", risk)
             st.write("  Col3:", trading_scope, "| Trading Apps:", trading_bc_apps_text, "| Other Apps:", other_bc_apps_text)
             
+            # Write to worksheet.
             worksheet.write_rich_string(output_row, 0, *col1_parts)
             worksheet.write_rich_string(output_row, 1, *col2_parts)
             worksheet.write_rich_string(output_row, 2, *col3_parts)
@@ -212,8 +201,7 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        # Replace only blank cells with a space.
-        df.fillna(" ", inplace=True)
+        df.fillna(" ", inplace=True)  # Replace blank cells with a space.
         df.columns = df.columns.str.strip()  # Clean header names.
         st.write("DataFrame shape:", df.shape)
         st.write("Columns:", df.columns.tolist())

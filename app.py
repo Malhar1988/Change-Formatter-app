@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+import re
 
 # --- Helper Functions ---
 def ordinal(n):
@@ -9,7 +10,7 @@ def ordinal(n):
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
-        suffix = {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+        suffix = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
     return str(n) + suffix
 
 def format_date(val):
@@ -30,39 +31,37 @@ def format_date(val):
 
 def build_summary(location, online_outage, ci_val, bc_val, nonbc_val):
     """
-    Build a summary string using location, online_outage, and counts.
-    - CI is always shown as "{ci_count} CIs" if count>0.
-    - BC and NONBC are shown only if count > 0.
+    Build a summary string with:
+      - For CI: if count > 0: output e.g. "3 CIs"
+      - For BC: if count > 0: output e.g. "2 BC"
+      - For NONBC: if count > 0: output e.g. "1 NONBC"
+    Other parts (location, online_outage) are joined with commas.
+    If a field is empty, it is omitted.
     """
     parts = []
-    # Add location and online_outage (even if they are just spaces, they will be trimmed later).
-    if location.strip() != "":
+    if location.strip():
         parts.append(location.strip())
-    if online_outage.strip() != "":
+    if online_outage.strip():
         parts.append(online_outage.strip())
-    
-    # For CI: show if non-empty.
+    # For CI.
     ci_count = len(str(ci_val).split(",")) if str(ci_val).strip() != "" else 0
     if ci_count > 0:
         parts.append(f"{ci_count} CIs")
-        
-    # For BC: include only if count > 0.
+    # For BC.
     bc_count = len(str(bc_val).split(",")) if str(bc_val).strip() != "" else 0
     if bc_count > 0:
         parts.append(f"{bc_count} BC")
-        
     # For NONBC.
     nonbc_count = len(str(nonbc_val).split(",")) if str(nonbc_val).strip() != "" else 0
     if nonbc_count > 0:
         parts.append(f"{nonbc_count} NONBC")
-        
     return ", ".join(parts)
 
 # --- Main Function to Generate the Final Formatted Excel File ---
 def generate_formatted_excel(df):
     output = BytesIO()
     
-    # Replace blank (NaN) cells with a single space (but only for individual cells).
+    # Replace blank values in individual cells with a single space.
     df.fillna(" ", inplace=True)
     
     # Use ExcelWriter with XlsxWriter in a context manager.
@@ -92,18 +91,18 @@ def generate_formatted_excel(df):
         
         st.write("Processing", len(df), "records...")
         
-        # (Optional) Write a header test row in Excel row 1.
+        # Write a test header row (optional).
         worksheet.write_rich_string(0, 0,
                                     " ", bold_format, "Test Header Row",
                                     normal_format, " (Row 1)")
         st.write("Test header row written at Excel row 1.")
         
-        # Process each record and write one output row per record.
-        output_row = 1  # Processed rows start at Excel row 2.
+        # Process each record and write one output row per record, starting at Excel row 2.
+        output_row = 1
         for idx, row in df.iterrows():
-            # ---------- Column 1: Record Details ----------
+            # ---------------- Column 1: Record Details ----------------
             planned_start = format_date(row.get('PlannedStart', " "))
-            planned_end = format_date(row.get('PlannedEnd', " "))
+            planned_end   = format_date(row.get('PlannedEnd', " "))
             date_line = f"{planned_start} - {planned_end}".strip()
             title_line = str(row.get('Title', " ")).strip()
             
@@ -126,43 +125,59 @@ def generate_formatted_excel(df):
                 normal_format, business_groups_line
             ]
             
-            # ---------- Column 2: Change & Risk ----------
-            # We want to combine ChangeId and F4F.
+            # ---------------- Column 2: Change & Risk ----------------
+            # We need both ChangeId and F4F.
             change_id = str(row.get('ChangeId', " ")).strip()
             f4f_val = str(row.get('F4F', " ")).strip()
-            if change_id == " " and f4f_val == " ":
-                change_text = " "
-            else:
-                # Even if one is blank, we display the slash.
+            # Concatenate with a slash between them.
+            if change_id != " " and f4f_val != " ":
                 change_text = f"{change_id}/{f4f_val}"
+            elif change_id != " ":
+                change_text = change_id
+            elif f4f_val != " ":
+                change_text = f4f_val
+            else:
+                change_text = " "
             risk = str(row.get('RiskLevel', " ")).strip()
             if risk.upper().startswith("SHELL_"):
                 risk = risk[6:]
             risk = risk.capitalize().strip()
-            
+            # Use a single newline between the two lines.
             col2_parts = [
                 " ", normal_format, change_text,
-                normal_format, "\n\n",
+                normal_format, "\n",
                 normal_format, risk
             ]
             
-            # ---------- Column 3: Trading Assets & BC Apps ----------
+            # ---------------- Column 3: Trading Assets & BC Apps ----------------
             trading_apps = []
             other_apps = []
+            # Determine the separator: if bc_val contains newline, split on newline; otherwise on comma.
             bc_content = str(bc_val).strip()
-            if bc_content != "":
-                for item in bc_content.split(","):
-                    item = item.strip()
-                    # Only consider items with direct relation.
-                    if "(RelationType = Direct)" in item:
-                        app_name = item.replace("(RelationType = Direct)", "").strip()
-                        if app_name.upper().startswith("ST"):
-                            trading_apps.append(app_name)
-                        else:
-                            other_apps.append(app_name)
+            if "\n" in bc_content:
+                items = bc_content.split("\n")
+            else:
+                items = bc_content.split(",")
+            for item in items:
+                item = item.strip()
+                # Ignore if the item starts with "(" (e.g., "(12 BC)").
+                if item.startswith("("):
+                    continue
+                # Only consider items with "(RelationType = Direct)".
+                if "(RelationType = Direct)" in item:
+                    app_name = item.replace("(RelationType = Direct)", "").strip()
+                    if app_name.upper().startswith("ST"):
+                        trading_apps.append(app_name)
+                    else:
+                        other_apps.append(app_name)
             trading_scope = "Yes" if trading_apps else "No"
             trading_bc_apps_text = ", ".join(trading_apps) if trading_apps else "None"
-            other_bc_apps_text = ", ".join(other_apps) if other_apps else "None"
+            # For other apps: if there are no trading apps, output "No". 
+            # Otherwise, if there are trading apps and other apps exist then list them; if no other apps, output "No".
+            if not trading_apps:
+                other_bc_apps_text = "No"
+            else:
+                other_bc_apps_text = ", ".join(other_apps) if other_apps else "No"
             
             col3_parts = [
                 " ", bold_format, "Trading assets in scope: ",
@@ -175,13 +190,12 @@ def generate_formatted_excel(df):
                 normal_format, other_bc_apps_text
             ]
             
-            # Log diagnostics in Streamlit.
+            # Log diagnostics.
             st.write(f"Record {idx} -> Excel Row {output_row+1}:")
             st.write("  Col1:", date_line, "|", title_line, "|", summary_line, "|", business_groups_line)
             st.write("  Col2:", change_text, "|", risk)
             st.write("  Col3:", trading_scope, "| Trading Apps:", trading_bc_apps_text, "| Other Apps:", other_bc_apps_text)
             
-            # Write the rich strings to the worksheet.
             worksheet.write_rich_string(output_row, 0, *col1_parts)
             worksheet.write_rich_string(output_row, 1, *col2_parts)
             worksheet.write_rich_string(output_row, 2, *col3_parts)
@@ -198,7 +212,7 @@ uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx",
 if uploaded_file:
     try:
         df = pd.read_excel(uploaded_file)
-        # Replace blank cells with a single space (only for each cell value).
+        # Replace only blank cells with a space.
         df.fillna(" ", inplace=True)
         df.columns = df.columns.str.strip()  # Clean header names.
         st.write("DataFrame shape:", df.shape)

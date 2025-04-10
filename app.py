@@ -1,64 +1,66 @@
-import streamlit as st
 import pandas as pd
+import openpyxl
+from openpyxl.styles import Font
 from io import BytesIO
 
-# --------- Main Processing Function ---------
-def format_data(df):
-    def format_change_details(row):
-        try:
-            start = pd.to_datetime(row['PlannedStart']).strftime('%-dth %B')
-            end = pd.to_datetime(row['PlannedEnd']).strftime('%-dth %B %Y')
-        except:
-            start = end = "Date Missing"
-        location = row['Location'] if pd.notnull(row['Location']) else ""
-        return f"{start} - {end}\n{location}\n{row['Title']}"
+def generate_formatted_excel(df):
+    # Extract planned dates and metadata from first row
+    start_date = df['PlannedStart'].iloc[0]
+    end_date = df['PlannedEnd'].iloc[0]
+    location = df['Location'].iloc[0]
+    outage_type = df['OnLine/Outage'].iloc[0]
 
-    def format_change_number(row):
-        change_id = row['ChangeId'] if pd.notnull(row['ChangeId']) else "Unknown"
-        f4f = row['F4F'] if pd.notnull(row['F4F']) else "Unknown"
-        risk = row['RiskLevel'].split('_')[-1].capitalize() if pd.notnull(row['RiskLevel']) else "Unknown"
-        return f"{change_id}/{f4f}\n{risk}"
+    # Filter BC apps where RelationType is Direct
+    bc_direct_apps = df[(df["RelationType"] == "Direct") & (df["BC"].notna())]
 
-    def format_other_details(row):
-        platform = f"Platform: {row['Location']}" if pd.notnull(row['Location']) else ""
-        trading_scope = "Trading assets in scope:Yes" if 'Trading' in str(row['Title']) else "Trading assets in scope:No"
-        other_bc_apps = "Other BC Apps: Yes" if pd.notnull(row['BC']) and "(0 BC)" not in str(row['BC']) else "Other BC Apps: No"
-        return f"{platform}\n{trading_scope}\n\n{other_bc_apps}"
+    # Count metrics
+    total_cis = df["CI"].nunique()
+    bc_count = bc_direct_apps.shape[0]
+    non_bc_count = total_cis - bc_count
 
-    return pd.DataFrame({
-        'Change_Details': df.apply(format_change_details, axis=1),
-        'Change_number': df.apply(format_change_number, axis=1),
-        'Other Details': df.apply(format_other_details, axis=1)
-    })
+    # Create workbook
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Formatted Output"
+    bold = Font(bold=True)
 
+    # Row 1 & 2: Planned Dates
+    ws["A1"] = "Planned Start Date:"
+    ws["A1"].font = bold
+    ws["B1"] = str(start_date)
 
-# --------- Streamlit UI ---------
-st.set_page_config(page_title="Change Record Formatter", layout="centered")
-st.title("📋 Excel Formatter for Change Records")
-st.write("Upload an Excel file, and download a neatly formatted version for reporting.")
+    ws["A2"] = "Planned End Date:"
+    ws["A2"].font = bold
+    ws["B2"] = str(end_date)
 
-uploaded_file = st.file_uploader("📤 Upload Excel File", type=["xlsx"])
+    # Row 3: Spacer
+    ws.append([])
 
-if uploaded_file:
-    try:
-        df = pd.read_excel(uploaded_file, engine="openpyxl")
-        st.success("✅ File uploaded and read successfully!")
+    # Row 4: Summary Line
+    summary = f"{location}, {outage_type}, {total_cis} CIs, {bc_count} BC, {non_bc_count} Non-BC"
+    ws.append([summary])
 
-        formatted_df = format_data(df)
+    # Row 5: Spacer
+    ws.append([])
 
-        # Prepare file to download
-        buffer = BytesIO()
-        formatted_df.to_excel(buffer, index=False)
-        buffer.seek(0)
+    # Row 6: Business Affected
+    ws.append(["Business Affected"])
 
-        st.download_button(
-            label="📥 Download Formatted Excel",
-            data=buffer,
-            file_name="Formatted_Changes_Output.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
+    # Row 7: Column C heading
+    ws["C7"] = "BC Apps (RelationType = Direct)"
+    ws["C7"].font = bold
 
-        st.dataframe(formatted_df.head())  # Preview first few rows
+    # Row 8 onward: App names from BC column
+    for i, app in enumerate(bc_direct_apps["BC"], start=8):
+        ws[f"C{i}"] = app
 
-    except Exception as e:
-        st.error(f"⚠️ Error processing file: {e}")
+    # Auto-fit column widths
+    for col in ws.columns:
+        max_len = max(len(str(cell.value)) if cell.value else 0 for cell in col)
+        ws.column_dimensions[col[0].column_letter].width = max_len + 2
+
+    # Save to memory
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return output

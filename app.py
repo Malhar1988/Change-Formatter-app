@@ -3,19 +3,19 @@ import pandas as pd
 from io import BytesIO
 from datetime import datetime
 
-# Helper functions to format date text.
+# --- Helper Functions ---
 def ordinal(n):
     """Return the ordinal string for a number (e.g., 9 -> '9th')."""
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
-        suffix = {1:"st",2:"nd",3:"rd"}.get(n % 10, "th")
+        suffix = {1:"st", 2:"nd", 3:"rd"}.get(n % 10, "th")
     return str(n) + suffix
 
 def format_date(val):
     """
     Convert a date string like '09-04-2025  05:00:00' to '9th April 2025'.
-    If parsing fails, return the original value as a string.
+    If conversion fails, return the original value as a string.
     """
     if pd.isna(val):
         return ""
@@ -28,68 +28,58 @@ def format_date(val):
             return str(val)
     return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
 
+# --- Function to Generate the Excel File ---
 def generate_formatted_excel(df):
-    """
-    Generate an Excel file using XlsxWriter with three columns.
-    
-    Column 1 (Record Details):
-      - Line 1 (bold): A date line from PlannedStart and PlannedEnd.
-      - Line 2: Title.
-      - Line 3: A summary line (Location, OnLine/Outage, and counts for CI, BC, NONBC).
-      - Line 4: BusinessGroups.
-      Each line is separated by extra newlines.
-    
-    Column 2 (Change & Risk):
-      - Line 1: F4F column content (if available) or ChangeId with '/F4F' appended.
-      - Line 2: RiskLevel (with any 'SHELL_' prefix removed and the remainder capitalized).
-    
-    Column 3 (Trading Assets & BC Apps):
-      - Line 1 (bold heading): "Trading assets in scope:" followed by Yes/No.
-      - Line 2 (bold heading): "Trading BC Apps:" followed by a comma‑separated list.
-      - Line 3 (bold heading): "Other BC Apps:" followed by a comma‑separated list (or "No"/"None").
-    """
     output = BytesIO()
     writer = pd.ExcelWriter(output, engine='xlsxwriter')
     workbook = writer.book
     worksheet = workbook.add_worksheet("Output Final")
     
-    # Create two formats with explicit white background and black font.
+    # Create formats (white background, black font)
     bold_format = workbook.add_format({
-        'bold': True, 'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
+        'bold': True, 
+        'text_wrap': True, 
+        'bg_color': 'white', 
+        'font_color': 'black'
     })
     normal_format = workbook.add_format({
-        'text_wrap': True, 'bg_color': 'white', 'font_color': 'black'
+        'text_wrap': True, 
+        'bg_color': 'white', 
+        'font_color': 'black'
     })
     
-    # Set column widths.
+    # Set column widths
     worksheet.set_column(0, 0, 50)  # Column A
     worksheet.set_column(1, 1, 30)  # Column B
     worksheet.set_column(2, 2, 50)  # Column C
     
     st.write("Generating output for", len(df), "rows...")
     
-    # ------------------ Write a hard-coded test row ------------------
-    # This writes a test row in row 0 to verify that rich strings are working.
-    test_text = ["", bold_format, "Test Bold", normal_format, " Test Normal"]
-    worksheet.write_rich_string(0, 0, *test_text)
-    st.write("Test row written to row 0.")
+    # -------- Write a Test Row at the top (row 0) --------
+    # This row is hard-coded so you can check that writing works.
+    worksheet.write_rich_string(0, 0, "", bold_format, "Test Bold", normal_format, " Test Normal")
+    st.write("Test row written at row 0.")
     
-    # Start writing processed rows after the test row.
-    # We'll start at row 1.
+    # -------- Write processed rows starting at row 1 --------
     output_row = 1
     for idx, row in df.iterrows():
-        # Process Column 1: Record Details.
-        planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
-        planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
+        # --- Column 1: Record Details ---
+        # Build a date line from PlannedStart and PlannedEnd (formatted)
+        planned_start = format_date(row.get('PlannedStart', ''))
+        planned_end   = format_date(row.get('PlannedEnd', ''))
         date_line = f"{planned_start} - {planned_end}".strip()
-        title_line = str(row['Title']) if pd.notna(row['Title']) else ""
-        location = str(row['Location']) if pd.notna(row['Location']) else ""
-        online_outage = str(row['OnLine/Outage']) if pd.notna(row['OnLine/Outage']) else ""
-        ci_count = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
-        bc_count = len(str(row['BC']).split(",")) if pd.notna(row['BC']) else 0
-        nonbc_count = len(str(row['NONBC']).split(",")) if pd.notna(row['NONBC']) else 0
+        
+        title_line = str(row.get('Title', ''))
+        
+        # Build a summary line (using Location, OnLine/Outage, counts)
+        location = str(row.get('Location', ''))
+        online_outage = str(row.get('OnLine/Outage', ''))
+        ci_count = len(str(row.get('CI', '')).split(",")) if pd.notna(row.get('CI', '')) else 0
+        bc_count = len(str(row.get('BC', '')).split(",")) if pd.notna(row.get('BC', '')) else 0
+        nonbc_count = len(str(row.get('NONBC', '')).split(",")) if pd.notna(row.get('NONBC', '')) else 0
         summary_line = f"{location}, {online_outage}, CI ({ci_count} CIs), BC ({bc_count} BC), NONBC ({nonbc_count} NONBC)".strip()
-        business_groups_line = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
+        
+        business_groups_line = str(row.get('BusinessGroups', ''))
         
         col1_parts = [
             "", bold_format, date_line,
@@ -101,27 +91,31 @@ def generate_formatted_excel(df):
             normal_format, business_groups_line
         ]
         
-        # Process Column 2: Change & Risk.
+        # --- Column 2: Change & Risk ---
+        # Use F4F if available; otherwise use ChangeId with "/F4F"
         if 'F4F' in df.columns:
-            f4f_val = str(row['F4F']) if pd.notna(row['F4F']) else ""
+            f4f_val = str(row.get('F4F', ''))
         else:
-            change_id = str(row['ChangeId']) if pd.notna(row['ChangeId']) else ""
+            change_id = str(row.get('ChangeId', ''))
             f4f_val = f"{change_id}/F4F" if change_id else ""
-        risk = str(row['RiskLevel']) if pd.notna(row['RiskLevel']) else ""
+        risk = str(row.get('RiskLevel', ''))
         if risk.upper().startswith("SHELL_"):
             risk = risk[6:]
         risk = risk.capitalize()
+        
         col2_parts = [
             "", normal_format, f4f_val,
             normal_format, "\n\n",
             normal_format, risk
         ]
         
-        # Process Column 3: Trading Assets & BC Apps.
+        # --- Column 3: Trading Assets & BC Apps ---
+        # Parse the BC column for items containing "(RelationType = Direct)"
         trading_apps = []
         other_apps = []
-        if pd.notna(row['BC']):
-            for item in str(row['BC']).split(","):
+        bc_val = row.get('BC', '')
+        if pd.notna(bc_val):
+            for item in str(bc_val).split(","):
                 item = item.strip()
                 if "(RelationType = Direct)" in item:
                     app_name = item.replace("(RelationType = Direct)", "").strip()
@@ -147,19 +141,20 @@ def generate_formatted_excel(df):
             normal_format, other_bc_apps_content
         ]
         
-        # Log diagnostics in Streamlit.
-        st.write(f"Row {idx} processed into output row {output_row}:")
-        st.write("  Column1:", date_line, "|", title_line)
-        st.write("  Column2:", f4f_val, "|", risk)
-        st.write("  Column3:", trading_scope, "|", trading_bc_apps_content, "|", other_bc_apps_content)
-        
-        # Write the rich strings to the worksheet.
+        # Write the three columns for this row.
         worksheet.write_rich_string(output_row, 0, *col1_parts)
         worksheet.write_rich_string(output_row, 1, *col2_parts)
         worksheet.write_rich_string(output_row, 2, *col3_parts)
         
-        output_row += 1  # Increment the output row for the next record.
-    
+        # For debugging, print details to Streamlit.
+        st.write(f"Row {idx} written to output row {output_row}:")
+        st.write("  Col1 ->", date_line, "|", title_line)
+        st.write("  Col2 ->", f4f_val, "|", risk)
+        st.write("  Col3 ->", trading_scope, "|", trading_bc_apps_content, "|", other_bc_apps_content)
+        
+        output_row += 1
+        
+    writer.save()  # Ensure the workbook is saved.
     writer.close()
     output.seek(0)
     return output

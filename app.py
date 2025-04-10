@@ -6,161 +6,89 @@ from openpyxl.styles import Font, Alignment
 from io import BytesIO
 
 def generate_formatted_excel(df):
-    # Create a new workbook and worksheet
+    # Create a new workbook and select the active worksheet.
     wb = Workbook()
     ws = wb.active
     ws.title = "Output Final"
     
-    # Define some common styles
+    # Define common styles.
     bold = Font(bold=True)
     center_align = Alignment(horizontal="center", vertical="center")
     
-    # Start at row 1
-    current_row = 1
+    # For illustration, we use only the first record from the dataframe.
+    # (You can loop over all records with appropriate row offsets.)
+    record = df.iloc[0]
     
-    # Process each record in the DataFrame
-    for idx, row in df.iterrows():
-        # ------------------------------------------------------
-        # Cell-by-cell assignment for this record's block
-        # ------------------------------------------------------
-        
-        # 1. Planned Start Date (e.g., cell A1 and B1)
-        ws.cell(row=current_row, column=1, value="Planned Start Date:").font = bold
-        # Convert the date (or value) to string if necessary
-        planned_start = str(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
-        ws.cell(row=current_row, column=2, value=planned_start)
-        current_row += 1  # move to next row
-        
-        # 2. Planned End Date (e.g., cell A2 and B2)
-        ws.cell(row=current_row, column=1, value="Planned End Date:").font = bold
-        planned_end = str(row['PlannedEnd']) if pd.notna(row['PlannedEnd']) else ""
-        ws.cell(row=current_row, column=2, value=planned_end)
-        current_row += 1
-        
-        # 3. Spacer row
-        current_row += 1
-        
-        # 4. Summary line (merged across columns A to C)
-        # Build summary text. (Custom calculation as per your data)
-        location = str(row['Location']) if pd.notna(row['Location']) else ""
-        outage_type = str(row['OnLine/Outage']) if pd.notna(row['OnLine/Outage']) else ""
-        
-        # Count total CIs (assuming comma-separated list in "CI")
-        total_cis = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
-        
-        # Separate BC apps (if value in column "BC") and others
-        bc_apps = []
-        other_apps = []
-        if pd.notna(row['BC']):
-            for item in str(row['BC']).split(","):
-                item = item.strip()
-                if "(RelationType = Direct)" in item:
-                    # Remove indicator text and strip spaces
-                    app_name = item.replace("(RelationType = Direct)", "").strip()
-                    # If the app name starts with "ST" assume it belongs to BC apps
-                    if app_name.startswith("ST"):
-                        bc_apps.append(app_name)
-                    else:
-                        other_apps.append(app_name)
-        bc_count = len(bc_apps)
-        non_bc_count = total_cis - bc_count
-        
-        summary_text = f"{location}, {outage_type}, {total_cis} CIs, {bc_count} BC, {non_bc_count} Non BC"
-        # Merge cells from A to C in current row to host the summary text
-        ws.merge_cells(start_row=current_row, start_column=1, end_row=current_row, end_column=3)
-        summary_cell = ws.cell(row=current_row, column=1, value=summary_text)
-        summary_cell.alignment = center_align
-        current_row += 1
-        
-        # 5. Spacer row
-        current_row += 1
-        
-        # 6. Business Groups (placed in column A, one per row)
-        if pd.notna(row['BusinessGroups']):
-            groups = str(row['BusinessGroups']).split(",")
-            for group in groups:
-                ws.cell(row=current_row, column=1, value=group.strip())
-                current_row += 1
-        
-        # 7. Spacer row
-        current_row += 1
-        
-        # 8. Change ID placed in Column B
-        change_id = str(row['ChangeId']) if pd.notna(row['ChangeId']) else ""
-        ws.cell(row=current_row, column=2, value=change_id)
-        current_row += 1
-        
-        # 9. Spacer row
-        current_row += 1
-        
-        # 10. Additional Details in Column C
-        # a. Platform (cell in column C)
-        ws.cell(row=current_row, column=3, value="Platform: FCI")
-        current_row += 1
-        
-        # b. Trading assets in scope
-        ws.cell(row=current_row, column=3, value="Trading assets in scope: Yes")
-        current_row += 1
-        
-        # c. Spacer row
-        current_row += 1
-        
-        # d. Trading BC Apps header
-        bc_header = ws.cell(row=current_row, column=3, value="Trading BC Apps:")
-        bc_header.font = bold
-        current_row += 1
-        
-        # e. List each BC app cell by cell; if none, write "None"
-        if bc_apps:
-            for app in bc_apps:
-                ws.cell(row=current_row, column=3, value=app)
-                current_row += 1
-        else:
-            ws.cell(row=current_row, column=3, value="None")
-            current_row += 1
-        
-        # f. Spacer row
-        current_row += 1
-        
-        # g. Other BC Apps header
-        other_bc_header = ws.cell(row=current_row, column=3, value="Other BC Apps:")
-        other_bc_header.font = bold
-        current_row += 1
-        
-        # h. List each Other BC app; if none, write "None"
-        if other_apps:
-            for app in other_apps:
-                ws.cell(row=current_row, column=3, value=app)
-                current_row += 1
-        else:
-            ws.cell(row=current_row, column=3, value="None")
-            current_row += 1
-        
-        # i. Final Spacer before next record
-        current_row += 3
-        
-    # Save the workbook to a BytesIO stream so it can be downloaded
+    # --- Row 1: Planned Start Date details ---
+    # Cell A1: Label
+    ws['A1'] = "Planned Start Date:"
+    ws['A1'].font = bold
+    # Cell B1: Planned Start Date value
+    planned_start = str(record['PlannedStart']) if pd.notna(record['PlannedStart']) else ""
+    ws['B1'] = planned_start
+    # (Optional: You could assign cell C1 if needed, e.g., a note or formatting detail.)
+    
+    # --- Row 2: Planned End Date details ---
+    # Cell A2: Label for Planned End Date.
+    ws['A2'] = "Planned End Date:"
+    ws['A2'].font = bold
+    # Cell B2: Planned End Date value.
+    planned_end = str(record['PlannedEnd']) if pd.notna(record['PlannedEnd']) else ""
+    ws['B2'] = planned_end
+    
+    # Cell C2: Additional details for row 2.
+    # For example, we can put a summary of location and outage type.
+    location = str(record['Location']) if pd.notna(record['Location']) else ""
+    outage_type = str(record['OnLine/Outage']) if pd.notna(record['OnLine/Outage']) else ""
+    summary = f"{location}, {outage_type}"
+    ws['C2'] = summary
+    ws['C2'].alignment = center_align
+
+    # --- (Optional) Additional cell-by-cell assignments ---
+    # For example, assign a summary line in row 3:
+    # Cell A3 could have a merged cell for overall summary.
+    total_cis = len(str(record['CI']).split(",")) if pd.notna(record.get('CI')) else 0
+    # Process BC details (this is an example extraction; adjust per your logic)
+    bc_apps = []
+    if pd.notna(record.get('BC')):
+        for item in str(record['BC']).split(","):
+            item = item.strip()
+            if "(RelationType = Direct)" in item:
+                app_name = item.replace("(RelationType = Direct)", "").strip()
+                bc_apps.append(app_name)
+    bc_count = len(bc_apps)
+    non_bc_count = total_cis - bc_count
+    overall_summary = f"{total_cis} CIs, {bc_count} BC, {non_bc_count} Non BC"
+    
+    # Merge cells A3 to C3 and center the summary.
+    ws.merge_cells(start_row=3, start_column=1, end_row=3, end_column=3)
+    summary_cell = ws.cell(row=3, column=1, value=overall_summary)
+    summary_cell.alignment = center_align
+
+    # Save the workbook to a BytesIO stream.
     output = BytesIO()
     wb.save(output)
     output.seek(0)
     return output
 
-# Streamlit user interface
+# ----------------------
+# Streamlit App UI
+# ----------------------
 st.title("Change Formatter App")
 
 uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx"])
 
 if uploaded_file:
     try:
-        # Read the uploaded Excel file as a DataFrame
+        # Read the uploaded Excel file as a DataFrame.
         df = pd.read_excel(uploaded_file)
         st.subheader("Preview of Uploaded Data")
         st.dataframe(df.head())
         
-        # Create the formatted Excel file by calling the function cell by cell
+        # Generate the formatted Excel file (cell-by-cell assignment).
         formatted_excel = generate_formatted_excel(df)
         
-        # Provide a download button for the file
+        # Provide a download button for the file.
         st.download_button(
             label="📥 Download Formatted Excel",
             data=formatted_excel,

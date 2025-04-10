@@ -2,7 +2,7 @@ import streamlit as st
 import pandas as pd
 from openpyxl import Workbook
 from openpyxl.cell.rich_text import CellRichText, TextBlock
-from openpyxl.cell.text import InlineFont   # Using InlineFont for rich text inline fonts
+from openpyxl.cell.text import InlineFont
 from io import BytesIO
 from datetime import datetime
 
@@ -17,19 +17,28 @@ def ordinal(n):
     return str(n) + suffix
 
 def format_date(val):
-    """If a date is in the format '09-04-2025  05:00:00', format it as '9th April 2025'."""
+    """
+    If a date is in the format '09-04-2025  05:00:00', format it as '9th April 2025'.
+    If parsing fails, returns the original value as a string.
+    """
     if pd.isna(val):
         return ""
     if isinstance(val, datetime):
         dt = val
     else:
         try:
-            # Strip extra spaces and parse the input string.
             dt = datetime.strptime(str(val).strip(), "%d-%m-%Y %H:%M:%S")
         except Exception:
-            # If parsing fails, return the original string.
             return str(val)
     return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
+
+# --- Create InlineFont instances ---
+# Note: InlineFont objects are used to format rich text.
+bold_font = InlineFont()
+bold_font.b = True
+
+normal_font = InlineFont()
+normal_font.b = False
 
 # --- Main function to generate the formatted Excel file ---
 def generate_formatted_excel(df):
@@ -37,12 +46,12 @@ def generate_formatted_excel(df):
     ws = wb.active
     ws.title = "Output Final"
     
-    # Process each record from the input file (one row per record)
+    # Process each record from the input file (each row becomes one output row)
     for idx, row in df.iterrows():
         output_row = idx + 1  # Excel rows are 1-indexed
 
         # --- COLUMN 1: Record Details ---
-        # Line 1: Date line (PlannedStart - PlannedEnd) in bold.
+        # Line 1: Date line in bold: PlannedStart - PlannedEnd (formatted as required)
         planned_start = format_date(row['PlannedStart']) if pd.notna(row['PlannedStart']) else ""
         planned_end   = format_date(row['PlannedEnd'])   if pd.notna(row['PlannedEnd'])   else ""
         date_line = f"{planned_start} - {planned_end}".strip()
@@ -50,7 +59,7 @@ def generate_formatted_excel(df):
         # Line 2: Title
         title_line = str(row['Title']) if pd.notna(row['Title']) else ""
         
-        # Line 3: Summary line (Location, OnLine/Outage, CI (count), BC (count), NONBC (count))
+        # Line 3: Summary line with Location, OnLine/Outage, and counts from CI, BC, NONBC.
         location = str(row['Location']) if pd.notna(row['Location']) else ""
         online_outage = str(row['OnLine/Outage']) if pd.notna(row['OnLine/Outage']) else ""
         ci_count = len(str(row['CI']).split(",")) if pd.notna(row['CI']) else 0
@@ -62,15 +71,15 @@ def generate_formatted_excel(df):
         business_groups_line = str(row['BusinessGroups']) if pd.notna(row['BusinessGroups']) else ""
         
         # Build rich text for Column 1.
-        # Insert a blank line (two newline characters) after each line.
+        # Two newline characters ("\n\n") are added after each line to leave a blank line.
         col1_rich = CellRichText(
-            TextBlock(date_line, InlineFont(b=True)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock(title_line, InlineFont(b=False)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock(summary_line, InlineFont(b=False)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock(business_groups_line, InlineFont(b=False))
+            TextBlock(date_line, bold_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock(title_line, normal_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock(summary_line, normal_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock(business_groups_line, normal_font)
         )
         
         # --- COLUMN 2: Change & Risk ---
@@ -81,20 +90,20 @@ def generate_formatted_excel(df):
             change_id = str(row['ChangeId']) if pd.notna(row['ChangeId']) else ""
             f4f_val = f"{change_id}/F4F" if change_id else ""
             
-        # Process the RiskLevel value (remove a leading SHELL_ if present, then capitalize)
+        # Process RiskLevel by stripping "SHELL_" if present and capitalizing the remainder.
         risk = str(row['RiskLevel']) if pd.notna(row['RiskLevel']) else ""
         if risk.upper().startswith("SHELL_"):
             risk = risk[6:]
         risk = risk.capitalize()
         
         col2_rich = CellRichText(
-            TextBlock(f4f_val, InlineFont(b=False)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock(risk, InlineFont(b=False))
+            TextBlock(f4f_val, normal_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock(risk, normal_font)
         )
         
         # --- COLUMN 3: Trading Assets & BC Apps ---
-        # Parse the BC column items (assumed comma-separated) that include "(RelationType = Direct)"
+        # Parse BC column items (assumed comma-separated) that contain "(RelationType = Direct)".
         trading_apps = []
         other_apps = []
         if pd.notna(row['BC']):
@@ -111,19 +120,20 @@ def generate_formatted_excel(df):
         trading_bc_apps_content = ", ".join(trading_apps) if trading_apps else "None"
         # For Other BC Apps:
         if not trading_apps:
+            # If no trading apps are found, show "No"
             other_bc_apps_content = "No"
         else:
             other_bc_apps_content = ", ".join(other_apps) if other_apps else "None"
         
         col3_rich = CellRichText(
-            TextBlock("Trading assets in scope: ", InlineFont(b=True)),
-            TextBlock(trading_scope, InlineFont(b=False)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock("Trading BC Apps: ", InlineFont(b=True)),
-            TextBlock(trading_bc_apps_content, InlineFont(b=False)),
-            TextBlock("\n\n", InlineFont(b=False)),
-            TextBlock("Other BC Apps: ", InlineFont(b=True)),
-            TextBlock(other_bc_apps_content, InlineFont(b=False))
+            TextBlock("Trading assets in scope: ", bold_font),
+            TextBlock(trading_scope, normal_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock("Trading BC Apps: ", bold_font),
+            TextBlock(trading_bc_apps_content, normal_font),
+            TextBlock("\n\n", normal_font),
+            TextBlock("Other BC Apps: ", bold_font),
+            TextBlock(other_bc_apps_content, normal_font)
         )
         
         # Write the rich text objects into their respective cells.
@@ -131,12 +141,12 @@ def generate_formatted_excel(df):
         ws.cell(row=output_row, column=2).value = col2_rich
         ws.cell(row=output_row, column=3).value = col3_rich
         
-        # Set cells to wrap text so multiple lines are visible.
+        # Enable text wrapping in the cells.
         ws.cell(row=output_row, column=1).alignment = ws.cell(row=output_row, column=1).alignment.copy(wrapText=True)
         ws.cell(row=output_row, column=2).alignment = ws.cell(row=output_row, column=2).alignment.copy(wrapText=True)
         ws.cell(row=output_row, column=3).alignment = ws.cell(row=output_row, column=3).alignment.copy(wrapText=True)
     
-    # Save workbook to a BytesIO stream.
+    # Save the workbook to a BytesIO stream.
     output_stream = BytesIO()
     wb.save(output_stream)
     output_stream.seek(0)

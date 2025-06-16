@@ -2,12 +2,10 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
-import re
 
 # --- Helper Functions ---
 
 def ordinal(n):
-    """Return the ordinal string for a number (e.g., 9 -> '9th')."""
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
@@ -15,242 +13,166 @@ def ordinal(n):
     return str(n) + suffix
 
 def format_date(val):
-    """
-    Convert a date string like '09-04-2025 05:00:00' or '09 April 2025'
-    to a formatted string such as '9th April 2025'.
-    If conversion fails, returns the original value as a string.
-    """
+    """Convert to 'Dth Month'."""
     if pd.isna(val) or str(val).strip() == "":
         return ""
     if isinstance(val, datetime):
         dt = val
     else:
-        for fmt in ("%d %B %Y", "%d-%m-%Y %H:%M:%S"):
+        for fmt in ("%Y-%m-%d %H:%M:%S", "%d %B %Y", "%d-%m-%Y %H:%M:%S"):
             try:
                 dt = datetime.strptime(str(val).strip(), fmt)
                 break
-            except Exception:
+            except:
                 continue
         else:
             return str(val)
-    return f"{ordinal(dt.day)} {dt.strftime('%B')} {dt.year}"
+    return f"{ordinal(dt.day)} {dt.strftime('%B')}"
 
 def split_items(text):
-    """
-    Split the text into items.
-    If a newline exists, split on newline; otherwise, split on commas.
-    Returns a list of trimmed items.
-    """
     t = str(text).strip()
-    if t == "":
+    if not t:
         return []
     if "\n" in t:
-        items = t.split("\n")
+        parts = t.split("\n")
     else:
-        items = t.split(",")
-    return [x.strip() for x in items if x.strip() != ""]
+        parts = t.split(",")
+    return [p.strip() for p in parts if p.strip()]
 
 def count_items(text):
-    """Return the count of items in text (split by newline or comma)."""
     return len(split_items(text))
 
 def count_direct_items(text):
-    """Return the count of items that contain '(RelationType = Direct)'."""
-    return len([x for x in split_items(text) if "(RelationType = Direct)" in x])
+    return len([p for p in split_items(text) if "(relationtype = direct)" in p.lower()])
 
 def preserve(val):
-    """
-    Preserve the value if it is exactly a single space; otherwise, trim it.
-    """
     s = str(val)
     return s if s == " " else s.strip()
 
-def build_summary(location, online_outage, ci_val, bc_val, nonbc_val):
-    """
-    Build the summary string for Column 1 (Line 3):
-      - Uses the preserved location (so if blank, it remains " " and yields a leading comma).
-      - Uses the trimmed OnLine/Outage.
-      - CI count is the total count from the CI field.
-      - BC and NONBC counts are taken only from items that contain '(RelationType = Direct)'.
-    Returns a string joined by ", ".
-    """
-    parts = []
-    parts.append(preserve(location))
-    parts.append(online_outage.strip())
+def build_summary(location, online, ci, bc, nonbc):
+    parts = [preserve(location), online.strip()]
     
-    ci_count = count_items(ci_val)
+    ci_count = count_items(ci)
     if ci_count > 0:
         parts.append("1 CI" if ci_count == 1 else f"{ci_count} CIs")
     
-    bc_direct = count_direct_items(bc_val)
+    bc_direct = count_direct_items(bc)
     if bc_direct > 0:
         parts.append(f"{bc_direct} BC (Direct)")
     
-    nonbc_direct = count_direct_items(nonbc_val)
+    nonbc_direct = count_direct_items(nonbc)
     if nonbc_direct > 0:
         parts.append(f"{nonbc_direct} NON BC (Direct)")
     
-    return ", ".join([p for p in parts if p != ""])
+    return ", ".join([p for p in parts if p])
 
-# --- Main Function to Generate the Formatted Excel File ---
+# --- Excel Generation ---
 
 def generate_formatted_excel(df):
     output = BytesIO()
-    
-    # Replace blank (NaN) cells with a single space.
     df.fillna(" ", inplace=True)
     df.columns = df.columns.str.strip()
-    
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        workbook = writer.book
-        worksheet = workbook.add_worksheet("Output Final")
-        
-        # Create formats.
-        bold_format = workbook.add_format({
-            'bold': True,
-            'text_wrap': True,
-            'bg_color': 'white',
-            'font_color': 'black',
-            'font_size': 12
-        })
-        normal_format = workbook.add_format({
-            'text_wrap': True,
-            'bg_color': 'white',
-            'font_color': 'black',
-            'font_size': 12
-        })
-        
-        # Set column widths.
-        worksheet.set_column(0, 0, 50)  # Column A: Record Details
-        worksheet.set_column(1, 1, 30)  # Column B: Change & Risk
-        worksheet.set_column(2, 2, 50)  # Column C: Trading Assets & BC Apps
-        
-        # No header row is written.
-        output_row = 0
-        
-        for idx, row in df.iterrows():
-            # ----- Column 1: Record Details -----
-            planned_start = format_date(row.get('PlannedStart', " "))
-            planned_end = format_date(row.get('PlannedEnd', " "))
-            if planned_start == planned_end:
-                date_line = planned_start
+
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        wb = writer.book
+        ws = wb.add_worksheet("Output Final")
+
+        bold = wb.add_format({'bold': True, 'text_wrap': True, 'bg_color': 'white', 'font_color': 'black', 'font_size': 12})
+        norm = wb.add_format({'text_wrap': True, 'bg_color': 'white', 'font_color': 'black', 'font_size': 12})
+
+        ws.set_column(0, 0, 50)
+        ws.set_column(1, 1, 30)
+        ws.set_column(2, 2, 50)
+
+        row = 0
+        for _, r in df.iterrows():
+            # Column 1
+            fs = format_date(r.PlannedStart)
+            fe = format_date(r.PlannedEnd)
+            if fs and fe:
+                date_line = fs if fs == fe else f"{fs} – {fe} {r.PlannedStart.year}"
             else:
-                date_line = f"{planned_start} - {planned_end}".strip()
-            title_line = preserve(row.get('Title', " "))
-            
-            location_val = preserve(row.get('Location', " "))
-            online_val = str(row.get('OnLine/Outage', " ")).strip()
-            ci_val_field = row.get('CI', " ")
-            bc_val_field = row.get('BC', " ")
-            nonbc_val_field = row.get('NONBC', " ")
-            
-            summary_line = build_summary(location_val, online_val, ci_val_field, bc_val_field, nonbc_val_field)
-            business_groups_line = preserve(row.get('BusinessGroups', " "))
-            
-            col1_parts = [
-                " ", bold_format, date_line,
-                normal_format, "\n\n",
-                normal_format, title_line,
-                normal_format, "\n\n",
-                normal_format, summary_line,
-                normal_format, "\n\n",
-                normal_format, business_groups_line
+                date_line = ""
+            title = preserve(r.Title)
+            summary = build_summary(r.Location, r["OnLine/Outage"], r.CI, r.BC, r.NONBC)
+            bg = preserve(r.BusinessGroups)
+
+            c1 = [
+                " ", bold, date_line,
+                norm, "\n\n",
+                norm, title,
+                norm, "\n\n",
+                norm, summary,
+                norm, "\n\n",
+                norm, bg
             ]
-            
-            # ----- Column 2: Change & Risk -----
-            change_id = preserve(row.get('ChangeId', " "))
-            f4f_field = preserve(row.get('F4F', " "))
-            risk_raw = str(row.get('RiskLevel', " ")).strip()
-            if risk_raw.upper().startswith("SHELL_"):
-                risk_val = risk_raw[6:]
+            ws.write_rich_string(row, 0, *c1)
+
+            # Column 2
+            cid = preserve(r.ChangeId)
+            f4f = preserve(r.F4F)
+            risk = preserve(r.RiskLevel.replace("SHELL_", "", 1).capitalize())
+            if f4f == " " and not risk:
+                c2 = cid
             else:
-                risk_val = risk_raw
-            risk_val = risk_val.capitalize().strip()
-            
-            # If both F4F and RiskLevel are blank, output only ChangeId.
-            if f4f_field == " " and risk_val == "":
-                col2_text = change_id
-            else:
-                if f4f_field == " ":
-                    col2_text = change_id
-                else:
-                    if change_id != " ":
-                        col2_text = f"{change_id}/{f4f_field}"
-                    else:
-                        col2_text = f4f_field
-                # Append risk on the next line.
-                col2_text = col2_text + "\n" + risk_val
-            
-            col2_parts = [" ", normal_format, col2_text]
-            
-            # ----- Column 3: Trading Assets & BC Apps -----
-            trading_apps = []
-            other_apps = []
-            bc_text = str(bc_val_field).strip()
-            if "\n" in bc_text:
-                items = bc_text.split("\n")
-            else:
-                items = bc_text.split(",")
-            for item in items:
-                item = item.strip()
-                if item.startswith("("):
-                    continue
-                if "(RelationType = Direct)" in item:
-                    app_name = item.replace("(RelationType = Direct)", "").strip()
-                    if app_name and app_name.upper().startswith("ST"):
-                        trading_apps.append(app_name)
-                    elif app_name:
-                        other_apps.append(app_name)
-            trading_scope = "Yes" if trading_apps else "No"
-            trading_bc_apps_text = ", ".join(trading_apps) if trading_apps else "None"
-            if trading_scope == "No":
-                other_bc_apps_text = ", ".join(other_apps) if other_apps else "No"
-                col3_parts = [
-                    " ", bold_format, "Trading assets in scope: ",
-                    normal_format, trading_scope,
-                    normal_format, "\n\n",
-                    bold_format, "Other BC Apps: ",
-                    normal_format, other_bc_apps_text
+                first = cid if f4f == " " else (f"{cid}/{f4f}" if cid != " " else f4f)
+                c2 = f"{first}\n{risk}"
+            ws.write_rich_string(row, 1, " ", norm, c2)
+
+            # Column 3
+            bc_items = split_items(r.BC)
+            trading = [
+                p.replace("(RelationType = Direct)", "", 1).strip()
+                for p in bc_items
+                if "(relationtype = direct)" in p.lower() and p.upper().startswith("ST")
+            ]
+            other_bc_direct = [
+                p.replace("(RelationType = Direct)", "", 1).strip()
+                for p in bc_items
+                if "(relationtype = direct)" in p.lower() and not p.upper().startswith("ST")
+            ]
+            nonbc_items = split_items(r.NONBC)
+            nonbc_trading = [
+                p.replace("(RelationType = Direct)", "", 1).strip()
+                for p in nonbc_items
+                if "(relationtype = direct)" in p.lower() and p.upper().startswith("ST")
+            ]
+
+            if trading:
+                parts3 = [
+                    " ", bold, "Trading assets in scope: ", norm, "Yes",
+                    norm, "\n\n", bold, "Trading BC Apps: ", norm, ", ".join(trading),
+                    norm, "\n\n", bold, "Other BC Apps: ", norm,
+                    (", ".join(other_bc_direct) if other_bc_direct else "No")
+                ]
+            elif nonbc_trading:
+                parts3 = [
+                    " ", bold, "Trading assets in scope: ", norm, "Yes (NON BC)",
+                    norm, "\n\n", bold, "Other BC Apps: ", norm, ", ".join(nonbc_trading)
                 ]
             else:
-                other_bc_apps_text = ", ".join(other_apps) if other_apps else "No"
-                col3_parts = [
-                    " ", bold_format, "Trading assets in scope: ",
-                    normal_format, trading_scope,
-                    normal_format, "\n\n",
-                    bold_format, "Trading BC Apps: ",
-                    normal_format, trading_bc_apps_text,
-                    normal_format, "\n\n",
-                    bold_format, "Other BC Apps: ",
-                    normal_format, other_bc_apps_text
+                parts3 = [
+                    " ", bold, "Trading assets in scope: ", norm, "No",
+                    norm, "\n\n", bold, "Other BC Apps: ", norm,
+                    (", ".join(other_bc_direct) if other_bc_direct else "No")
                 ]
-            
-            # Write the rich strings to the worksheet.
-            worksheet.write_rich_string(output_row, 0, *col1_parts)
-            worksheet.write_rich_string(output_row, 1, *col2_parts)
-            worksheet.write_rich_string(output_row, 2, *col3_parts)
-            
-            output_row += 1
-        
+
+            ws.write_rich_string(row, 2, *parts3)
+
+            row += 1
+
     output.seek(0)
     return output
 
-# ----- Streamlit App UI -----
+# --- Streamlit UI ---
 
 st.title("Change Formatter App")
-uploaded_file = st.file_uploader("Upload your Changes Excel file", type=["xlsx", "xls"])
-
-if uploaded_file:
-    try:
-        df = pd.read_excel(uploaded_file)
-        df.fillna(" ", inplace=True)
-        df.columns = df.columns.str.strip()
-        formatted_excel = generate_formatted_excel(df)
-        st.download_button(
-            label="Download Formatted Output",
-            data=formatted_excel,
-            file_name="output_final.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-        )
-    except Exception as e:
-        st.error(f"Error processing file: {e}")
+uploaded = st.file_uploader("Upload your Changes Excel file", type=["xlsx","xls"])
+if uploaded:
+    df = pd.read_excel(uploaded)
+    df.fillna(" ", inplace=True)
+    df.columns = df.columns.str.strip()
+    out = generate_formatted_excel(df)
+    st.download_button("📥 Download Formatted Output", out,
+                       file_name="output_final.xlsx",
+                       mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")

@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 from datetime import datetime
+import re
 
 # --- Helper Functions ---
 
@@ -9,11 +10,10 @@ def ordinal(n):
     if 11 <= (n % 100) <= 13:
         suffix = "th"
     else:
-        suffix = {1:"st",2:"nd",3:"rd"}.get(n % 10, "th")
+        suffix = {1:"st",2:"nd",3:"rd"}.get(n%10,"th")
     return str(n) + suffix
 
 def format_date(val):
-    """Convert to 'Dth Month'."""
     if pd.isna(val) or str(val).strip()=="":
         return ""
     if isinstance(val, datetime):
@@ -43,7 +43,7 @@ def count_items(text):
     return len(split_items(text))
 
 def count_direct_items(text):
-    return len([p for p in split_items(text) if "(relationtype = direct)" in p.lower()])
+    return len([p for p in split_items(text) if "relationtype = direct" in p.lower()])
 
 def preserve(val):
     s = str(val)
@@ -68,9 +68,8 @@ def generate_formatted_excel(df):
     output = BytesIO()
     df.fillna(" ", inplace=True)
     df.columns = df.columns.str.strip()
-    import xlsxwriter
 
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
         wb = writer.book
         ws = wb.add_worksheet("Output Final")
 
@@ -108,31 +107,35 @@ def generate_formatted_excel(df):
             # Column 2
             cid = preserve(r.ChangeId)
             f4f = preserve(r.F4F)
-            risk = preserve(r.RiskLevel.replace("SHELL_","",1).capitalize())
-            if f4f==" " and not risk:
+            risk_raw = preserve(r.RiskLevel.replace("SHELL_","",1).capitalize())
+            if f4f==" " and not risk_raw:
                 c2 = cid
             else:
                 first = cid if f4f==" " else (f"{cid}/{f4f}" if cid!=" " else f4f)
-                c2 = f"{first}\n{risk}"
+                c2 = f"{first}\n{risk_raw}"
             ws.write_rich_string(row, 1, " ", norm, c2)
 
             # Column 3
             bc_items = split_items(r.BC)
+            # remove tag case-insensitively:
+            def strip_tag(s):
+                return re.sub(r"\(relationtype\s*=\s*direct\)", "", s, flags=re.IGNORECASE).strip()
+
             trading = [
-                p.replace("(RelationType = Direct)","",1).strip()
+                strip_tag(p)
                 for p in bc_items
-                if "(relationtype = direct)" in p.lower() and p.upper().startswith("ST")
+                if "relationtype = direct" in p.lower() and p.upper().startswith("ST")
             ]
             other_bc_direct = [
-                p.replace("(RelationType = Direct)","",1).strip()
+                strip_tag(p)
                 for p in bc_items
-                if "(relationtype = direct)" in p.lower() and not p.upper().startswith("ST")
+                if "relationtype = direct" in p.lower() and not p.upper().startswith("ST")
             ]
             nonbc_items = split_items(r.NONBC)
             nonbc_trading = [
-                p.replace("(RelationType = Direct)","",1).strip()
+                strip_tag(p)
                 for p in nonbc_items
-                if "(relationtype = direct)" in p.lower() and p.upper().startswith("ST")
+                if "relationtype = direct" in p.lower() and p.upper().startswith("ST")
             ]
 
             if trading:
